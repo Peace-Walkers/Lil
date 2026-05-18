@@ -119,8 +119,197 @@ pub const Lexer = struct {
         return false;
     }
 
+    fn string(self: *Self, start: usize) Token {
+        while (self.peek()) |ch| {
+            if (ch == '"') break;
+            if (ch == '\n') return self.makeToken(.Error, start);
+            _ = self.advance();
+        }
+
+        if (self.peek() == '"') {
+            _ = self.advance();
+            return self.makeToken(.String, start);
+        } else {
+            return self.makeToken(.Error, start);
+        }
+    }
+
+    fn number(self: *Self, start: usize) Token {
+        while (self.peek()) |ch| {
+            if (std.ascii.isDigit(ch)) {
+                _ = self.advance();
+            } else {
+                break;
+            }
+        }
+
+        // Look for a fractional part
+        if (self.peek() == '.' and self.peekNext() != null and std.ascii.isDigit(self.peekNext().?)) {
+            _ = self.advance(); // Consume the '.'
+            while (self.peek()) |ch| {
+                if (std.ascii.isDigit(ch)) {
+                    _ = self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        return self.makeToken(.Number, start);
+    }
+
+    fn identifier(self: *Self, start: usize) Token {
+        while (self.peek()) |ch| {
+            if (std.ascii.isAlphanumeric(ch) or ch == '_') {
+                _ = self.advance();
+            } else {
+                break;
+            }
+        }
+
+        const text = self.source[start..self.pos];
+
+        if (std.mem.eql(u8, text, "let")) return self.makeToken(.Let, start);
+        if (std.mem.eql(u8, text, "mut")) return self.makeToken(.Mut, start);
+        if (std.mem.eql(u8, text, "fn")) return self.makeToken(.Fn, start);
+        if (std.mem.eql(u8, text, "type")) return self.makeToken(.Type, start);
+        if (std.mem.eql(u8, text, "match")) return self.makeToken(.Match, start);
+        if (std.mem.eql(u8, text, "if")) return self.makeToken(.If, start);
+        if (std.mem.eql(u8, text, "else")) return self.makeToken(.Else, start);
+        if (std.mem.eql(u8, text, "while")) return self.makeToken(.While, start);
+        if (std.mem.eql(u8, text, "return")) return self.makeToken(.Return, start);
+        if (std.mem.eql(u8, text, "and")) return self.makeToken(.And, start);
+        if (std.mem.eql(u8, text, "or")) return self.makeToken(.Or, start);
+        if (std.mem.eql(u8, text, "true")) return self.makeToken(.True, start);
+        if (std.mem.eql(u8, text, "false")) return self.makeToken(.False, start);
+
+        return self.makeToken(.Identifier, start);
+    }
+
     pub fn next(self: *Self) Token {
-        _ = self;
-        return .{ .tag = .Eof, .lexeme = "", .line = 0 };
+        // 1. Flush pending dedents
+        if (self.pending_dedents > 0) {
+            self.pending_dedents -= 1;
+            self.indent_depth -= 1;
+            return .{ .tag = .Dedent, .lexeme = "", .line = self.line };
+        }
+
+        if (self.is_line_start) {
+            var spaces: usize = 0;
+            while (self.peek()) |c| {
+                if (c == ' ') {
+                    spaces += 1;
+                    _ = self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            if (self.peek() == '#') {
+                while (self.peek()) |c| {
+                    if (c == '\n') break;
+                    _ = self.advance();
+                }
+            }
+
+            const next_char = self.peek();
+            if (next_char == '\n' or next_char == null) {
+                // Do nothing
+            } else {
+                self.is_line_start = false;
+                const current_indent = self.indent_stack[self.indent_depth - 1];
+
+                if (spaces > current_indent) {
+                    self.indent_stack[self.indent_depth] = spaces;
+                    self.indent_depth += 1;
+                    return .{ .tag = .Indent, .lexeme = "", .line = self.line };
+                } else if (spaces < current_indent) {
+                    while (self.indent_depth > 1 and spaces < self.indent_stack[self.indent_depth - 1]) {
+                        self.pending_dedents += 1;
+                        self.indent_depth -= 1;
+                    }
+                    self.pending_dedents -= 1;
+                    return .{ .tag = .Dedent, .lexeme = "", .line = self.line };
+                }
+            }
+        }
+
+        while (self.peek()) |c| {
+            if (c == ' ' or c == '\r' or c == '\t') {
+                _ = self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if (self.peek() == null) {
+            if (self.indent_depth > 1) {
+                self.pending_dedents = self.indent_depth - 2;
+                self.indent_depth -= 1;
+                return .{ .tag = .Dedent, .lexeme = "", .line = self.line };
+            }
+            return .{ .tag = .Eof, .lexeme = "", .line = self.line };
+        }
+
+        const start = self.pos;
+        const c = self.advance();
+
+        if (c == '\n') {
+            self.line += 1;
+            self.is_line_start = true;
+            return .{ .tag = .NewLine, .lexeme = "", .line = self.line };
+        }
+
+        if (c == '#') {
+            while (self.peek()) |ch| {
+                if (ch == '\n') break;
+                _ = self.advance();
+            }
+            return self.next();
+        }
+
+        switch (c) {
+            ':' => return self.makeToken(.Colon, start),
+            ',' => return self.makeToken(.Comma, start),
+            '.' => return self.makeToken(.Dot, start),
+            '(' => return self.makeToken(.LParen, start),
+            ')' => return self.makeToken(.RParen, start),
+            '{' => return self.makeToken(.LBrace, start),
+            '}' => return self.makeToken(.RBrace, start),
+            '+' => return self.makeToken(.Plus, start),
+            '-' => return self.makeToken(.Minus, start),
+            '*' => return self.makeToken(.Star, start),
+            '/' => return self.makeToken(.Slash, start),
+            '|' => return self.makeToken(.Pipe, start),
+
+            '=' => {
+                if (self.match('=')) return self.makeToken(.EqualsEquals, start);
+                if (self.match('>')) return self.makeToken(.Arrow, start);
+                return self.makeToken(.Equals, start);
+            },
+            '!' => {
+                if (self.match('=')) return self.makeToken(.BangEquals, start);
+            },
+            '>' => {
+                if (self.match('=')) return self.makeToken(.GreaterEqual, start);
+                return self.makeToken(.Greater, start);
+            },
+            '<' => {
+                if (self.match('=')) return self.makeToken(.LessEqual, start);
+                return self.makeToken(.Less, start);
+            },
+
+            '"' => return self.string(start),
+
+            else => {
+                if (std.ascii.isDigit(c)) {
+                    return self.number(start);
+                } else if (std.ascii.isAlphabetic(c) or c == '_') {
+                    return self.identifier(start);
+                }
+            },
+        }
+
+        return self.makeToken(.Error, start);
     }
 };

@@ -1,0 +1,31 @@
+# LiLang Full Token Coverage Test
+
+type Result =
+    | Success(data)
+    | Error
+
+fn process_data(input, threshold):
+    mut value = 0.0
+    
+    if input >= threshold and true:
+        let multiplier = 10 * (input / 2)
+        value = value + multiplier - 1.5
+    else:
+        value = 0
+        
+    while value < 100 or value <= 50:
+        value = value + 10
+        
+    return value
+
+let config = {
+    name: "Engine",
+    version: 42,
+    active: false
+}
+
+let check = match config.version:
+    42 => config.name
+    | _ => "Unknown"
+
+let is_valid = (10 > 5) or (10 != 5) == true

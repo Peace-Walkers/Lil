@@ -11,8 +11,11 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     var stdout_buffer: [1024]u8 = undefined;
+    var stdin_buffer: [1024]u8 = undefined;
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
+    var stdin_file_reader: Io.File.Reader = .init(.stdin(), io, &stdin_buffer);
+    const stdin_reader = &stdin_file_reader.interface;
 
     var vm = lil.VM.init(arena);
     defer vm.deinit();
@@ -20,6 +23,26 @@ pub fn main(init: std.process.Init) !void {
     if (args.len == 1) {
         try stdout_writer.print("LiLang v0.1.0 - REPL (Ctrl + C to exit)\n", .{});
         try stdout_writer.flush();
+        while (true) {
+            try stdout_writer.print("> ", .{});
+            try stdout_writer.flush();
+
+            const line_or_eof = stdin_reader.readSliceShort(&stdin_buffer) catch |err| {
+                if (err == error.EndOfStream) {
+                    break;
+                }
+                break;
+            };
+            std.log.info("read finish", .{});
+            if (line_or_eof != 0) {
+                vm.interpret(&stdin_buffer) catch |err| {
+                    stdout_writer.print("Error: {}\n", .{err});
+                };
+            } else {
+                try stdout_writer.print("\nBye!\n", .{});
+                break;
+            }
+        }
     } else if (args.len == 2) {
         const file_path = args[1];
         const source = std.Io.Dir.cwd().readFileAlloc(io, file_path, arena, .unlimited) catch |err| {

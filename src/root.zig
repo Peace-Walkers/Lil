@@ -1,4 +1,5 @@
 const std = @import("std");
+const lexer = @import("compiler/lexer.zig");
 
 pub const VM = struct {
     allocator: std.mem.Allocator,
@@ -13,7 +14,22 @@ pub const VM = struct {
 
     pub fn interpret(self: *VM, source: []const u8) !void {
         _ = self;
-        std.debug.print("Lil interpret : {s}\n", .{source});
+        var scanner = lexer.Lexer.init(source);
+        std.debug.print("====TOKENS====\n", .{});
+
+        while (true) {
+            const token = scanner.next();
+
+            std.debug.print("[{s:<15}] '{s}' (line {d})\n", .{ @tagName(token.tag), token.lexeme, token.line });
+
+            if (token.tag == .Eof or token.tag == .Error) {
+                break;
+            }
+        }
+
+        std.debug.print("=================\n", .{});
+
+        // std.debug.print("Lil interpret : {s}\n", .{source});
     }
 };
 
