@@ -15,19 +15,23 @@ pub const VM = struct {
     pub fn interpret(self: *VM, source: []const u8) !void {
         _ = self;
         var scanner = lexer.Lexer.init(source);
-        std.debug.print("====TOKENS====\n", .{});
+        const is_testing = @import("builtin").is_test;
+        if (!is_testing)
+            std.debug.print("====TOKENS====\n", .{});
 
         while (true) {
             const token = scanner.next();
 
-            std.debug.print("[{s:<15}] '{s}' (line {d})\n", .{ @tagName(token.tag), token.lexeme, token.line });
+            if (!is_testing)
+                std.debug.print("[{s:<15}] '{s}' (line {d})\n", .{ @tagName(token.tag), token.lexeme, token.line });
 
             if (token.tag == .Eof or token.tag == .Error) {
                 break;
             }
         }
 
-        std.debug.print("=================\n", .{});
+        if (!is_testing)
+            std.debug.print("=================\n", .{});
 
         // std.debug.print("Lil interpret : {s}\n", .{source});
     }
@@ -37,5 +41,9 @@ test "init VM" {
     var vm = VM.init(std.testing.allocator);
     defer vm.deinit();
     try vm.interpret("let x = 5");
+}
+
+test {
+    _ = @import("compiler/lexer.zig");
 }
 

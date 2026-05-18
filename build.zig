@@ -29,10 +29,9 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const lib_tests = b.addTest(.{
-        .root_module = exe.root_module,
+        .root_module = lil_mod,
     });
     const run_lib_tests = b.addRunArtifact(lib_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_tests.step);
 }
-

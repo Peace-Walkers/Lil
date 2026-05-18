@@ -210,6 +210,12 @@ pub const Lexer = struct {
                     if (c == '\n') break;
                     _ = self.advance();
                 }
+                if (self.peek() == '\n') {
+                    _ = self.advance();
+                    self.line += 1;
+                }
+                self.is_line_start = true;
+                return self.next();
             }
 
             const next_char = self.peek();
@@ -313,3 +319,123 @@ pub const Lexer = struct {
         return self.makeToken(.Error, start);
     }
 };
+
+const testing = std.testing;
+
+const ExpectedToken = struct {
+    tag: TokenType,
+    lexeme: []const u8,
+};
+
+fn expectTokens(source: []const u8, expected: []const ExpectedToken) !void {
+    var lexer = Lexer.init(source);
+    for (expected) |exp| {
+        const token = lexer.next();
+        try testing.expectEqual(exp.tag, token.tag);
+        try testing.expectEqualStrings(exp.lexeme, token.lexeme);
+    }
+    const eof = lexer.next();
+    try testing.expectEqual(TokenType.Eof, eof.tag);
+}
+
+test "lexer: basic variable declaration" {
+    const source = "let x = 42";
+    try expectTokens(source, &.{
+        .{ .tag = .Let, .lexeme = "let" },
+        .{ .tag = .Identifier, .lexeme = "x" },
+        .{ .tag = .Equals, .lexeme = "=" },
+        .{ .tag = .Number, .lexeme = "42" },
+    });
+}
+
+test "lexer: strings and floats" {
+    const source =
+        \\let msg = "hello"
+        \\mut pi = 3.14
+    ;
+    try expectTokens(source, &.{
+        .{ .tag = .Let, .lexeme = "let" },
+        .{ .tag = .Identifier, .lexeme = "msg" },
+        .{ .tag = .Equals, .lexeme = "=" },
+        .{ .tag = .String, .lexeme = "\"hello\"" },
+        .{ .tag = .NewLine, .lexeme = "" },
+        .{ .tag = .Mut, .lexeme = "mut" },
+        .{ .tag = .Identifier, .lexeme = "pi" },
+        .{ .tag = .Equals, .lexeme = "=" },
+        .{ .tag = .Number, .lexeme = "3.14" },
+    });
+}
+
+test "lexer: python-like indentation and dedentation" {
+    const source =
+        \\fn test():
+        \\    let a = 1
+        \\    if a > 0:
+        \\        return true
+        \\let b = 2
+    ;
+    try expectTokens(source, &.{
+        .{ .tag = .Fn, .lexeme = "fn" },
+        .{ .tag = .Identifier, .lexeme = "test" },
+        .{ .tag = .LParen, .lexeme = "(" },
+        .{ .tag = .RParen, .lexeme = ")" },
+        .{ .tag = .Colon, .lexeme = ":" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        .{ .tag = .Indent, .lexeme = "" },
+        .{ .tag = .Let, .lexeme = "let" },
+        .{ .tag = .Identifier, .lexeme = "a" },
+        .{ .tag = .Equals, .lexeme = "=" },
+        .{ .tag = .Number, .lexeme = "1" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        .{ .tag = .If, .lexeme = "if" },
+        .{ .tag = .Identifier, .lexeme = "a" },
+        .{ .tag = .Greater, .lexeme = ">" },
+        .{ .tag = .Number, .lexeme = "0" },
+        .{ .tag = .Colon, .lexeme = ":" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        // Enter if block
+        .{ .tag = .Indent, .lexeme = "" },
+        .{ .tag = .Return, .lexeme = "return" },
+        .{ .tag = .True, .lexeme = "true" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        // Double dedent back to global scope!
+        .{ .tag = .Dedent, .lexeme = "" },
+        .{ .tag = .Dedent, .lexeme = "" },
+
+        .{ .tag = .Let, .lexeme = "let" },
+        .{ .tag = .Identifier, .lexeme = "b" },
+        .{ .tag = .Equals, .lexeme = "=" },
+        .{ .tag = .Number, .lexeme = "2" },
+    });
+}
+
+test "lexer: comments are ignored" {
+    const source =
+        \\# This is a comment
+        \\let x = 10 # Inline comment
+        \\# Another comment
+    ;
+    try expectTokens(source, &.{
+        // First comment is skipped, moves directly to let
+        .{ .tag = .Let, .lexeme = "let" },
+        .{ .tag = .Identifier, .lexeme = "x" },
+        .{ .tag = .Equals, .lexeme = "=" },
+        .{ .tag = .Number, .lexeme = "10" },
+        .{ .tag = .NewLine, .lexeme = "" },
+    });
+}
+
+test "lexer: multi-character operators" {
+    const source = ">= <= == != =>";
+    try expectTokens(source, &.{
+        .{ .tag = .GreaterEqual, .lexeme = ">=" },
+        .{ .tag = .LessEqual, .lexeme = "<=" },
+        .{ .tag = .EqualsEquals, .lexeme = "==" },
+        .{ .tag = .BangEquals, .lexeme = "!=" },
+        .{ .tag = .Arrow, .lexeme = "=>" },
+    });
+}

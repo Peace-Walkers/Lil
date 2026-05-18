@@ -55,3 +55,7 @@ pub fn main(init: std.process.Init) !void {
         try stdout_writer.print("Usage: lilang <script path>\n", .{});
     }
 }
+
+test "run all compiler tests" {
+    _ = @import("lil");
+}
