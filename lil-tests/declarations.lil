@@ -1,0 +1,11 @@
+let a = 10
+mut name = "Lilang"
+let oui = 10 + 5 * 2 
+let non = false
+let cmp = 10 + 5 >= 20
+let ORR = 10 * 9 > 87 or 56 > 5 and 90 < 100
+
+let z = 10 + 5
+let b = 40 + 2
+let c = z * b
+
