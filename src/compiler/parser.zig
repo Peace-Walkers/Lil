@@ -56,7 +56,7 @@ pub const Parser = struct {
         return error.SyntaxError;
     }
 
-    fn pase_decl(self: *Self) !ast.Node {
+    fn parse_decl(self: *Self) !ast.Node {
         if (self.match(.Let)) {
             try self.consume(.Identifier, "Expected variable name after 'let'.");
             const name = self.previous.lexeme;
@@ -93,7 +93,33 @@ pub const Parser = struct {
             return .{ .MutDeclaration = .{ .name = name, .initializer = heap_node } };
         }
 
-        return .{ .Identifier = "Unknown Statement" };
+        const expr = try self.parse_expr();
+
+        if (self.match(.Equals)) {
+            if (expr != .Identifier) {
+                std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
+                self.had_error = true;
+                return error.SyntaxError;
+            }
+
+            const name = expr.Identifier;
+            const value_node = try self.parse_expr();
+
+            const heap_node = try self.arena.create(ast.Node);
+            heap_node.* = value_node;
+
+            if (self.current.tag != .Eof) {
+                try self.consume(.NewLine, "Expected newline after assignment");
+            }
+
+            return .{ .Assignment = .{ .name = name, .value = heap_node } };
+        }
+
+        if (self.current.tag != .Eof) {
+            try self.consume(.NewLine, "Expected newline after expression.");
+        }
+
+        return expr;
     }
 
     fn parse_primary(self: *Self) ParseError!ast.Node {
@@ -220,7 +246,7 @@ pub const Parser = struct {
         while (self.current.tag != .Eof) {
             if (self.match(.NewLine)) continue;
 
-            const decl = try self.pase_decl();
+            const decl = try self.parse_decl();
             try statement.append(self.arena, decl);
         }
 

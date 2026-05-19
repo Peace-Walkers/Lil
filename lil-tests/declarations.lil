@@ -9,3 +9,4 @@ let z = 10 + 5
 let b = 40 + 2
 let c = z * b
 
+name = "Lil"

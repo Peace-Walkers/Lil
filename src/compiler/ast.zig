@@ -11,6 +11,11 @@ pub const Node = union(enum) {
         statements: []Node,
     },
 
+    Assignment: struct {
+        name: []const u8,
+        value: *Node,
+    },
+
     Binary: struct {
         left: *Node,
         operator: lexer.TokenType,
@@ -94,6 +99,10 @@ pub const Node = union(enum) {
             },
             .Boolean => |b| {
                 std.debug.print("Boolean({})\n", .{b});
+            },
+            .Assignment => |a| {
+                std.debug.print("[Assign: {s}]\n", .{a.name});
+                a.value.dump(indent + 1, true, child_mask);
             },
             else => std.debug.print("[Unimplemented Node Printer]\n", .{}),
         }
