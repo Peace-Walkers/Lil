@@ -1,6 +1,11 @@
 const std = @import("std");
 const lexer = @import("lexer.zig");
 
+pub const TableField = struct {
+    key: []const u8,
+    value: Node,
+};
+
 pub const Node = union(enum) {
     Number: i64,
     String: []const u8,
@@ -58,6 +63,16 @@ pub const Node = union(enum) {
     Call: struct {
         callee: *Node,
         arguments: []const Node,
+    },
+
+    Get: struct {
+        object: *Node,
+        name: []const u8,
+    },
+
+    Table: struct {
+        fields: []const TableField,
+        elements: []const Node,
     },
 
     pub fn dump(self: Node, indent: usize, is_last: bool, depth_mask: u64) void {
@@ -170,6 +185,26 @@ pub const Node = union(enum) {
                 const len = call.arguments.len;
                 for (call.arguments, 0..) |arg, idx| {
                     arg.dump(indent + 1, idx == len - 1, child_mask);
+                }
+            },
+            .Get => |get| {
+                std.debug.print("[Get: {s}]\n", .{get.name});
+                get.object.dump(indent + 1, true, child_mask);
+            },
+            .Table => |table| {
+                std.debug.print("[Table]\n", .{});
+                // 1. On affiche les paires clé-valeur
+                for (table.fields) |field| {
+                    // On simule l'indentation
+                    var i: u32 = 0;
+                    while (i < indent + 1) : (i += 1) std.debug.print("│   ", .{});
+                    std.debug.print("├── {s}:\n", .{field.key});
+                    field.value.dump(indent + 2, false, child_mask);
+                }
+                // 2. On affiche les éléments de liste simple (tableaux)
+                const total_elems = table.elements.len;
+                for (table.elements, 0..) |elem, idx| {
+                    elem.dump(indent + 1, idx == total_elems - 1, child_mask);
                 }
             },
         }

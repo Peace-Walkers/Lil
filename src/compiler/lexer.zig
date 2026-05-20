@@ -190,7 +190,7 @@ pub const Lexer = struct {
         // 1. Flush pending dedents
         if (self.pending_dedents > 0) {
             self.pending_dedents -= 1;
-            self.indent_depth -= 1;
+            // self.indent_depth -= 1;
             return .{ .tag = .Dedent, .lexeme = "", .line = self.line };
         }
 
@@ -250,8 +250,9 @@ pub const Lexer = struct {
 
         if (self.peek() == null) {
             if (self.indent_depth > 1) {
-                self.pending_dedents = self.indent_depth - 2;
-                self.indent_depth -= 1;
+                self.pending_dedents = self.indent_depth - 1;
+                self.indent_depth = 1;
+                self.pending_dedents -= 1;
                 return .{ .tag = .Dedent, .lexeme = "", .line = self.line };
             }
             return .{ .tag = .Eof, .lexeme = "", .line = self.line };

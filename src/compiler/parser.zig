@@ -158,37 +158,86 @@ pub const Parser = struct {
     fn parse_call(self: *Self) ParseError!ast.Node {
         var expr = try self.parse_primary();
 
-        while (self.match(.LParen)) {
-            var args: std.ArrayList(ast.Node) = .empty;
-
-            if (self.current.tag != .RParen) {
-                while (true) {
-                    const arg = try self.parse_expr();
-                    try args.append(self.arena, arg);
-
-                    if (!self.match(.Comma)) break;
+        while (true) {
+            if (self.match(.LParen)) {
+                var args: std.ArrayList(ast.Node) = .empty;
+                if (self.current.tag != .RParen) {
+                    while (true) {
+                        const arg = try self.parse_expr();
+                        try args.append(self.arena, arg);
+                        if (!self.match(.Comma)) break;
+                    }
                 }
+                try self.consume(.RParen, "Expected ')' after arguments.");
+
+                const callee_ptr = try self.arena.create(ast.Node);
+                callee_ptr.* = expr;
+
+                expr = .{ .Call = .{
+                    .callee = callee_ptr,
+                    .arguments = try args.toOwnedSlice(self.arena),
+                } };
+            } else if (self.match(.Dot)) {
+                try self.consume(.Identifier, "Expected proprety name after '.'.");
+                const name = self.previous.lexeme;
+
+                const object_ptr = try self.arena.create(ast.Node);
+                object_ptr.* = expr;
+
+                expr = .{ .Get = .{
+                    .object = object_ptr,
+                    .name = name,
+                } };
+            } else {
+                break;
             }
-
-            try self.consume(.RParen, "Expected ')' after arguments.");
-
-            const callee_ptr = try self.arena.create(ast.Node);
-            callee_ptr.* = expr;
-
-            expr = .{ .Call = .{
-                .callee = callee_ptr,
-                .arguments = try args.toOwnedSlice(self.arena),
-            } };
         }
 
         return expr;
     }
 
-    fn parse_decl(self: *Self) !ast.Node {
-        if (self.match(.Fn)) {
-            return self.parse_fn();
+    fn parse_table(self: *Self) !ast.Node {
+        var fields: std.ArrayList(ast.TableField) = .empty;
+        var elements: std.ArrayList(ast.Node) = .empty;
+
+        if (self.current.tag != .RBrace) {
+            while (true) {
+                while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
+
+                const expr = try self.parse_expr();
+
+                if (self.match(.Colon)) {
+                    if (expr != .Identifier) {
+                        std.debug.print("Syntax error on line {d}: Table keys must be identifiers.\n", .{self.current.line});
+                        self.had_error = true;
+                        return error.SyntaxError;
+                    }
+
+                    const key = expr.Identifier;
+
+                    const val = try self.parse_expr();
+                    try fields.append(self.arena, .{ .key = key, .value = val });
+                } else {
+                    try elements.append(self.arena, expr);
+                }
+
+                while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
+
+                if (!self.match(.Comma)) break;
+            }
         }
 
+        while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
+        try self.consume(.RBrace, "Expected '}' to close the table.");
+
+        return .{ .Table = .{
+            .fields = try fields.toOwnedSlice(self.arena),
+            .elements = try elements.toOwnedSlice(self.arena),
+        } };
+    }
+
+    fn parse_decl(self: *Self) !ast.Node {
+        if (self.match(.Fn)) return try self.parse_fn();
         if (self.match(.If)) {
             return try self.parse_if();
         }
@@ -283,6 +332,10 @@ pub const Parser = struct {
         if (self.match(.True) or self.match(.False)) return .{ .Boolean = self.previous.tag == .True };
         if (self.match(.Identifier)) return .{ .Identifier = self.previous.lexeme };
 
+        if (self.match(.LBrace)) return try self.parse_table();
+
+        if (self.match(.Fn)) return try self.parse_fn();
+
         if (self.match(.LParen)) {
             const expr = try self.parse_expr();
             try self.consume(.RParen, "Expected ')' after expression.");
@@ -357,7 +410,7 @@ pub const Parser = struct {
 
         while (self.match(.Star) or self.match(.Slash)) {
             const operator = self.previous.tag;
-            const right = try self.parse_primary();
+            const right = try self.parse_call();
 
             const left_ptr = try self.arena.create(ast.Node);
             left_ptr.* = expr;
