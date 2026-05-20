@@ -6,6 +6,11 @@ pub const TableField = struct {
     value: Node,
 };
 
+pub const Variant = struct {
+    name: []const u8,
+    params: []const []const u8,
+};
+
 pub const Node = union(enum) {
     Number: i64,
     String: []const u8,
@@ -73,6 +78,17 @@ pub const Node = union(enum) {
     Table: struct {
         fields: []const TableField,
         elements: []const Node,
+    },
+
+    MethodCall: struct {
+        object: *Node,
+        method: []const u8,
+        arguments: []const Node,
+    },
+
+    TypeDeclaration: struct {
+        name: []const u8,
+        variants: []const Variant,
     },
 
     pub fn dump(self: Node, indent: usize, is_last: bool, depth_mask: u64) void {
@@ -179,9 +195,7 @@ pub const Node = union(enum) {
             },
             .Call => |call| {
                 std.debug.print("[Call]\n", .{});
-                // On affiche ce qu'on appelle (la fonction)
                 call.callee.dump(indent + 1, false, child_mask);
-                // On affiche les arguments
                 const len = call.arguments.len;
                 for (call.arguments, 0..) |arg, idx| {
                     arg.dump(indent + 1, idx == len - 1, child_mask);
@@ -193,18 +207,48 @@ pub const Node = union(enum) {
             },
             .Table => |table| {
                 std.debug.print("[Table]\n", .{});
-                // 1. On affiche les paires clé-valeur
                 for (table.fields) |field| {
-                    // On simule l'indentation
                     var i: u32 = 0;
                     while (i < indent + 1) : (i += 1) std.debug.print("│   ", .{});
                     std.debug.print("├── {s}:\n", .{field.key});
                     field.value.dump(indent + 2, false, child_mask);
                 }
-                // 2. On affiche les éléments de liste simple (tableaux)
                 const total_elems = table.elements.len;
                 for (table.elements, 0..) |elem, idx| {
                     elem.dump(indent + 1, idx == total_elems - 1, child_mask);
+                }
+            },
+            .MethodCall => |mcall| {
+                std.debug.print("[MethodCall: {s}]\n", .{mcall.method});
+                mcall.object.dump(indent + 1, false, child_mask);
+
+                const len = mcall.arguments.len;
+                for (mcall.arguments, 0..) |arg, idx| {
+                    arg.dump(indent + 1, idx == len - 1, child_mask);
+                }
+            },
+            .TypeDeclaration => |type_decl| {
+                std.debug.print("[Type: {s}]\n", .{type_decl.name});
+                const total_variants = type_decl.variants.len;
+                for (type_decl.variants, 0..) |variant, idx| {
+                    var i: u32 = 0;
+                    while (i < indent + 1) : (i += 1) std.debug.print("│   ", .{});
+
+                    if (idx == total_variants - 1) {
+                        std.debug.print("└── | {s}", .{variant.name});
+                    } else {
+                        std.debug.print("├── | {s}", .{variant.name});
+                    }
+
+                    if (variant.params.len > 0) {
+                        std.debug.print(" (", .{});
+                        for (variant.params, 0..) |param, p_idx| {
+                            if (p_idx > 0) std.debug.print(", ", .{});
+                            std.debug.print("{s}", .{param});
+                        }
+                        std.debug.print(")", .{});
+                    }
+                    std.debug.print("\n", .{});
                 }
             },
         }

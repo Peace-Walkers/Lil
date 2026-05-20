@@ -44,10 +44,14 @@ let user = {
     username: "pepedinho",
     stats: {commits: 500},
 
-    fn commits():
-      return stats.commits
+    fn commits(self):
+      return self.stats.commits
 }
 
 let ages = {25, 30, 18}
 
 let cmts = user.commits()
+
+type Option = 
+  | Some(val)
+  | None

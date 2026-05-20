@@ -181,19 +181,87 @@ pub const Parser = struct {
                 try self.consume(.Identifier, "Expected proprety name after '.'.");
                 const name = self.previous.lexeme;
 
-                const object_ptr = try self.arena.create(ast.Node);
-                object_ptr.* = expr;
+                if (self.match(.LParen)) {
+                    var args: std.ArrayList(ast.Node) = .empty;
+                    if (self.current.tag != .RParen) {
+                        while (true) {
+                            const arg = try self.parse_expr();
+                            try args.append(self.arena, arg);
+                            if (!self.match(.Comma)) break;
+                        }
+                    }
+                    try self.consume(.RParen, "Expected ')' after methode arguments.");
 
-                expr = .{ .Get = .{
-                    .object = object_ptr,
-                    .name = name,
-                } };
+                    const object_ptr = try self.arena.create(ast.Node);
+                    object_ptr.* = expr;
+
+                    expr = .{ .MethodCall = .{
+                        .object = object_ptr,
+                        .method = name,
+                        .arguments = try args.toOwnedSlice(self.arena),
+                    } };
+                } else {
+                    const object_ptr = try self.arena.create(ast.Node);
+                    object_ptr.* = expr;
+
+                    expr = .{ .Get = .{
+                        .object = object_ptr,
+                        .name = name,
+                    } };
+                }
             } else {
                 break;
             }
         }
 
         return expr;
+    }
+
+    fn patse_type(self: *Self) ParseError!ast.Node {
+        try self.consume(.Identifier, "Expected type name after 'type' keyword.");
+        const type_name = self.previous.lexeme;
+
+        try self.consume(.Equals, "Expected '=' after type name.");
+        try self.consume(.NewLine, "Expected newline after '='in type declaration.");
+
+        try self.consume(.Indent, "Expected indentation for type variants.");
+
+        var variants: std.ArrayList(ast.Variant) = .empty;
+
+        while (self.current.tag != .Dedent and self.current.tag != .Eof) {
+            if (self.match(.NewLine)) continue;
+
+            try self.consume(.Pipe, "Expected '|' to declare a vriant.");
+            try self.consume(.Identifier, "Expected variant name after '|'.");
+            const variant_name = self.previous.lexeme;
+
+            var params: std.ArrayList([]const u8) = .empty;
+
+            if (self.match(.LParen)) {
+                if (self.current.tag != .RParen) {
+                    while (true) {
+                        try self.consume(.Identifier, "Expected parameter name in variant.");
+                        try params.append(self.arena, self.previous.lexeme);
+                        if (!self.match(.Comma)) break;
+                    }
+                }
+                try self.consume(.RParen, "Expected ')' after variant parameters.");
+            }
+            try variants.append(self.arena, .{
+                .name = variant_name,
+                .params = try params.toOwnedSlice(self.arena),
+            });
+
+            if (self.current.tag != .Dedent) {
+                try self.consume(.NewLine, "Expected a newline after variant declaration.");
+            }
+        }
+
+        try self.consume(.Dedent, "Expected dedentation to close type declaration.");
+        return .{ .TypeDeclaration = .{
+            .name = type_name,
+            .variants = try variants.toOwnedSlice(self.arena),
+        } };
     }
 
     fn parse_table(self: *Self) !ast.Node {
@@ -237,6 +305,7 @@ pub const Parser = struct {
     }
 
     fn parse_decl(self: *Self) !ast.Node {
+        if (self.match(.Type)) return try self.patse_type();
         if (self.match(.Fn)) return try self.parse_fn();
         if (self.match(.If)) {
             return try self.parse_if();
