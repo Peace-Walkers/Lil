@@ -31,13 +31,33 @@ pub const Node = union(enum) {
         initializer: *Node,
     },
     Block: struct {
-        statement: []Node,
+        statements: []Node,
     },
 
-    IfExpression: struct {
-        conditiond: *Node,
+    IfStatement: struct {
+        condition: *Node,
         then_branch: *Node,
         else_branch: ?*Node,
+    },
+
+    WhileStatement: struct {
+        condition: *Node,
+        body: *Node,
+    },
+
+    FnDeclaration: struct {
+        name: []const u8,
+        params: []const []const u8,
+        body: *Node,
+    },
+
+    ReturnStatement: struct {
+        value: ?*Node,
+    },
+
+    Call: struct {
+        callee: *Node,
+        arguments: []const Node,
     },
 
     pub fn dump(self: Node, indent: usize, is_last: bool, depth_mask: u64) void {
@@ -104,7 +124,54 @@ pub const Node = union(enum) {
                 std.debug.print("[Assign: {s}]\n", .{a.name});
                 a.value.dump(indent + 1, true, child_mask);
             },
-            else => std.debug.print("[Unimplemented Node Printer]\n", .{}),
+            .Block => |block| {
+                std.debug.print("[Block]\n", .{});
+                const len = block.statements.len;
+                for (block.statements, 0..) |stmt, i| {
+                    stmt.dump(indent + 1, i == len - 1, child_mask);
+                }
+            },
+            .IfStatement => |if_stmt| {
+                std.debug.print("[If]\n", .{});
+                if_stmt.condition.dump(indent + 1, false, child_mask);
+
+                if (if_stmt.else_branch) |else_b| {
+                    if_stmt.then_branch.dump(indent + 1, false, child_mask);
+                    else_b.dump(indent + 1, true, child_mask);
+                } else {
+                    if_stmt.then_branch.dump(indent + 1, true, child_mask);
+                }
+            },
+            .WhileStatement => |while_stmt| {
+                std.debug.print("[While]\n", .{});
+                while_stmt.condition.dump(indent + 1, false, child_mask);
+                while_stmt.body.dump(indent + 1, true, child_mask);
+            },
+            .FnDeclaration => |func| {
+                std.debug.print("[Fn: {s}] (", .{func.name});
+                for (func.params, 0..) |param, idx| {
+                    if (idx > 0) std.debug.print(", ", .{});
+                    std.debug.print("{s}", .{param});
+                }
+                std.debug.print(")\n", .{});
+                func.body.dump(indent + 1, true, child_mask);
+            },
+            .ReturnStatement => |ret| {
+                std.debug.print("[Return]\n", .{});
+                if (ret.value) |val| {
+                    val.dump(indent + 1, true, child_mask);
+                }
+            },
+            .Call => |call| {
+                std.debug.print("[Call]\n", .{});
+                // On affiche ce qu'on appelle (la fonction)
+                call.callee.dump(indent + 1, false, child_mask);
+                // On affiche les arguments
+                const len = call.arguments.len;
+                for (call.arguments, 0..) |arg, idx| {
+                    arg.dump(indent + 1, idx == len - 1, child_mask);
+                }
+            },
         }
     }
 };

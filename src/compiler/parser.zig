@@ -56,7 +56,162 @@ pub const Parser = struct {
         return error.SyntaxError;
     }
 
+    fn parse_block(self: *Self) ParseError!ast.Node {
+        try self.consume(.Indent, "Expected indentation to start a block.");
+
+        var statements: std.ArrayList(ast.Node) = .empty;
+
+        while (self.current.tag != .Dedent and self.current.tag != .Eof) {
+            if (self.match(.NewLine)) continue;
+
+            const stmt = try self.parse_decl();
+            try statements.append(self.arena, stmt);
+        }
+
+        try self.consume(.Dedent, "Expected dedentation to close the block.");
+
+        return .{ .Block = .{ .statements = try statements.toOwnedSlice(self.arena) } };
+    }
+
+    fn parse_while(self: *Self) ParseError!ast.Node {
+        const condition_node = try self.parse_expr();
+        const heap_condition = try self.arena.create(ast.Node);
+        heap_condition.* = condition_node;
+
+        try self.consume(.Colon, "Expected ':' after while condition");
+        try self.consume(.NewLine, "Expected newline after ':' to start the block.");
+
+        const body = try self.parse_block();
+        const heap_body = try self.arena.create(ast.Node);
+        heap_body.* = body;
+
+        return .{ .WhileStatement = .{ .condition = heap_condition, .body = heap_body } };
+    }
+
+    fn parse_if(self: *Self) ParseError!ast.Node {
+        const condition_node = try self.parse_expr();
+        const heap_condition = try self.arena.create(ast.Node);
+        heap_condition.* = condition_node;
+
+        try self.consume(.Colon, "Expected ':' after if condition");
+        try self.consume(.NewLine, "Expected newline after ':' to start the block.");
+
+        const then_node = try self.parse_block();
+        const heap_then = try self.arena.create(ast.Node);
+        heap_then.* = then_node;
+
+        var heap_else: ?*ast.Node = null;
+        if (self.match(.Else)) {
+            var else_node: ast.Node = undefined;
+
+            if (self.match(.If)) {
+                else_node = try self.parse_if();
+            } else {
+                try self.consume(.Colon, "Expected ':' after else.");
+                try self.consume(.NewLine, "Expected newline after else.");
+                else_node = try self.parse_block();
+            }
+
+            const raw_ptr = try self.arena.create(ast.Node);
+            raw_ptr.* = else_node;
+            heap_else = raw_ptr;
+        }
+        return .{ .IfStatement = .{
+            .condition = heap_condition,
+            .then_branch = heap_then,
+            .else_branch = heap_else,
+        } };
+    }
+
+    fn parse_fn(self: *Self) ParseError!ast.Node {
+        try self.consume(.Identifier, "Expected function name after 'fn' keyword.");
+        const name = self.previous.lexeme;
+
+        try self.consume(.LParen, "Expected '(' after function name.");
+
+        var params: std.ArrayList([]const u8) = .empty;
+
+        if (self.current.tag != .RParen) {
+            while (true) {
+                try self.consume(.Identifier, "Expected parameter name.");
+                try params.append(self.arena, self.previous.lexeme);
+
+                if (!self.match(.Comma)) break;
+            }
+        }
+
+        try self.consume(.RParen, "Expected ')' after parameters.");
+        try self.consume(.Colon, "Expected ':' after function signature.");
+        try self.consume(.NewLine, "Expected newline to start function body.");
+
+        const body_node = try self.parse_block();
+        const heap_body = try self.arena.create(ast.Node);
+        heap_body.* = body_node;
+
+        return .{ .FnDeclaration = .{
+            .name = name,
+            .params = try params.toOwnedSlice(self.arena),
+            .body = heap_body,
+        } };
+    }
+
+    fn parse_call(self: *Self) ParseError!ast.Node {
+        var expr = try self.parse_primary();
+
+        while (self.match(.LParen)) {
+            var args: std.ArrayList(ast.Node) = .empty;
+
+            if (self.current.tag != .RParen) {
+                while (true) {
+                    const arg = try self.parse_expr();
+                    try args.append(self.arena, arg);
+
+                    if (!self.match(.Comma)) break;
+                }
+            }
+
+            try self.consume(.RParen, "Expected ')' after arguments.");
+
+            const callee_ptr = try self.arena.create(ast.Node);
+            callee_ptr.* = expr;
+
+            expr = .{ .Call = .{
+                .callee = callee_ptr,
+                .arguments = try args.toOwnedSlice(self.arena),
+            } };
+        }
+
+        return expr;
+    }
+
     fn parse_decl(self: *Self) !ast.Node {
+        if (self.match(.Fn)) {
+            return self.parse_fn();
+        }
+
+        if (self.match(.If)) {
+            return try self.parse_if();
+        }
+
+        if (self.match(.While)) {
+            return try self.parse_while();
+        }
+
+        if (self.match(.Return)) {
+            var heap_value: ?*ast.Node = null;
+
+            if (self.current.tag != .NewLine and self.current.tag != .Eof) {
+                const expr = try self.parse_expr();
+
+                const raw_ptr = try self.arena.create(ast.Node);
+                raw_ptr.* = expr;
+
+                heap_value = raw_ptr;
+            }
+            try self.consume(.NewLine, "Expected newline after return statement");
+            return .{ .ReturnStatement = .{ .value = heap_value } };
+        }
+
         if (self.match(.Let)) {
             try self.consume(.Identifier, "Expected variable name after 'let'.");
             const name = self.previous.lexeme;
@@ -198,7 +353,7 @@ pub const Parser = struct {
     }
 
     fn parse_factor(self: *Self) ParseError!ast.Node {
-        var expr = try self.parse_primary();
+        var expr = try self.parse_call();
 
         while (self.match(.Star) or self.match(.Slash)) {
             const operator = self.previous.tag;

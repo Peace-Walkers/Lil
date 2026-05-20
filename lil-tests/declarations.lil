@@ -10,3 +10,31 @@ let b = 40 + 2
 let c = z * b
 
 name = "Lil"
+
+mut zoo = ""
+
+
+if a > oui:
+  zoo = "elephant"
+else:
+  zoo = "rabbit"
+
+mut i = 0
+
+while i < 10:
+  i = i + 1
+
+# function declaration
+fn add(a, b):
+  return a + b
+
+
+fn cmp(a, b):
+  if a == b:
+    return true
+  return false
+
+
+mut result = 0
+if (cmp(oui,  a)):
+  result = add(oui, a)
