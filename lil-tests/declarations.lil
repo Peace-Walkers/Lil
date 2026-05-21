@@ -50,8 +50,18 @@ let user = {
 
 let ages = {25, 30, 18}
 
+let doubled = vec.map(fn(e):
+  return e * 2
+)
+
 let cmts = user.commits()
 
 type Option = 
   | Some(val)
   | None
+
+let option = Option::Some(10)
+
+let val = match option:
+  Option::Some(x) => x * 2
+  Option::None => 0

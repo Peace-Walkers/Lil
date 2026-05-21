@@ -209,12 +209,112 @@ pub const Parser = struct {
                         .name = name,
                     } };
                 }
+            } else if (self.match(.DoubleColon)) {
+                if (expr != .Identifier) {
+                    std.debug.print("Syntax error on line {d}: Expected type name before '::'.\n", .{self.current.line});
+                    self.had_error = true;
+                    return error.SyntaxError;
+                }
+                const namespace_name = expr.Identifier;
+
+                try self.consume(.Identifier, "Expected variant name after '::'.");
+                const variant_name = self.previous.lexeme;
+
+                if (self.match(.LParen)) {
+                    var args: std.ArrayList(ast.Node) = .empty;
+                    if (self.current.tag != .RParen) {
+                        while (true) {
+                            const arg = try self.parse_expr();
+                            try args.append(self.arena, arg);
+                            if (!self.match(.Comma)) break;
+                        }
+                    }
+                    try self.consume(.RParen, "Expected ')' after variant arguments.");
+
+                    expr = .{ .VariantCall = .{
+                        .namespace = namespace_name,
+                        .variant = variant_name,
+                        .arguments = try args.toOwnedSlice(self.arena),
+                    } };
+                } else {
+                    expr = .{ .VariantAccess = .{
+                        .namespace = namespace_name,
+                        .variant = variant_name,
+                    } };
+                }
             } else {
                 break;
             }
         }
 
         return expr;
+    }
+
+    fn parse_match(self: *Self) ParseError!ast.Node {
+        const target_node = try self.parse_expr();
+        const target_ptr = try self.arena.create(ast.Node);
+        target_ptr.* = target_node;
+
+        try self.consume(.Colon, "Expected ':' after match target.");
+        try self.consume(.NewLine, "Expected newline after match ':'.");
+
+        try self.consume(.Indent, "Expected indentation for match branches.");
+        var branches: std.ArrayList(ast.MatchBranch) = .empty;
+
+        while (self.current.tag != .Dedent and self.current.tag != .Eof) {
+            if (self.match(.NewLine)) continue;
+
+            try self.consume(.Identifier, "Expected pattern identifiers in match branch.");
+            var pattern_namespace: ?[]const u8 = null;
+            var pattern_name = self.previous.lexeme;
+
+            if (self.match(.DoubleColon)) {
+                pattern_namespace = pattern_name;
+                try self.consume(.Identifier, "Expected variant name after '::'.");
+                pattern_name = self.previous.lexeme;
+            }
+
+            var bindings: std.ArrayList([]const u8) = .empty;
+
+            if (self.match(.LParen)) {
+                if (self.current.tag != .RParen) {
+                    while (true) {
+                        try self.consume(.Identifier, "Expected bindings identifiers in pattern.");
+                        try bindings.append(self.arena, self.previous.lexeme);
+                        if (!self.match(.Comma)) break;
+                    }
+                }
+                try self.consume(.RParen, "Expected ')' after pattern bindings.");
+            }
+
+            try self.consume(.Arrow, "Expected '=>' after match pattern.");
+            var body_node: ast.Node = undefined;
+
+            if (self.match(.NewLine)) {
+                body_node = try self.parse_block();
+            } else {
+                body_node = try self.parse_expr();
+                if (self.current.tag != .Dedent) {
+                    try self.consume(.NewLine, "Expected newline after match branch expression.");
+                }
+            }
+
+            try branches.append(self.arena, .{
+                .pattern = .{
+                    .namespace = pattern_namespace,
+                    .name = pattern_name,
+                    .bindings = try bindings.toOwnedSlice(self.arena),
+                },
+                .body = body_node,
+            });
+        }
+
+        try self.consume(.Dedent, "Expected dedentation to close match block.");
+
+        return .{ .MatchExpression = .{
+            .target = target_ptr,
+            .branches = try branches.toOwnedSlice(self.arena),
+        } };
     }
 
     fn patse_type(self: *Self) ParseError!ast.Node {
@@ -400,6 +500,8 @@ pub const Parser = struct {
         if (self.match(.String)) return .{ .String = self.previous.lexeme };
         if (self.match(.True) or self.match(.False)) return .{ .Boolean = self.previous.tag == .True };
         if (self.match(.Identifier)) return .{ .Identifier = self.previous.lexeme };
+
+        if (self.match(.Match)) return try self.parse_match();
 
         if (self.match(.LBrace)) return try self.parse_table();
 

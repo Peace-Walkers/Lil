@@ -23,6 +23,7 @@ pub const TokenType = enum {
 
     // --- 3. Symbols & Operators ---
     Colon, // :
+    DoubleColon, // ::
     Comma, // ,
     Dot, // .
     Equals, // =
@@ -276,7 +277,10 @@ pub const Lexer = struct {
         }
 
         switch (c) {
-            ':' => return self.makeToken(.Colon, start),
+            ':' => {
+                if (self.match(':')) return self.makeToken(.DoubleColon, start);
+                return self.makeToken(.Colon, start);
+            },
             ',' => return self.makeToken(.Comma, start),
             '.' => return self.makeToken(.Dot, start),
             '(' => return self.makeToken(.LParen, start),

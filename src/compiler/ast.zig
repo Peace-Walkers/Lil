@@ -11,6 +11,17 @@ pub const Variant = struct {
     params: []const []const u8,
 };
 
+pub const MatchPattern = struct {
+    namespace: ?[]const u8,
+    name: []const u8,
+    bindings: []const []const u8,
+};
+
+pub const MatchBranch = struct {
+    pattern: MatchPattern,
+    body: Node,
+};
+
 pub const Node = union(enum) {
     Number: i64,
     String: []const u8,
@@ -89,6 +100,22 @@ pub const Node = union(enum) {
     TypeDeclaration: struct {
         name: []const u8,
         variants: []const Variant,
+    },
+
+    VariantAccess: struct {
+        namespace: []const u8,
+        variant: []const u8,
+    },
+
+    VariantCall: struct {
+        namespace: []const u8,
+        variant: []const u8,
+        arguments: []const Node,
+    },
+
+    MatchExpression: struct {
+        target: *Node,
+        branches: []const MatchBranch,
     },
 
     pub fn dump(self: Node, indent: usize, is_last: bool, depth_mask: u64) void {
@@ -249,6 +276,53 @@ pub const Node = union(enum) {
                         std.debug.print(")", .{});
                     }
                     std.debug.print("\n", .{});
+                }
+            },
+            .MatchExpression => |m| {
+                std.debug.print("[Match]\n", .{});
+
+                var j: u32 = 0;
+                while (j < indent + 1) : (j += 1) std.debug.print("│   ", .{});
+                std.debug.print("├── Target:\n", .{});
+                m.target.dump(indent + 2, false, child_mask);
+
+                const total_branches = m.branches.len;
+                for (m.branches, 0..) |branch, idx| {
+                    var i: u32 = 0;
+                    while (i < indent + 1) : (i += 1) std.debug.print("│   ", .{});
+
+                    if (idx == total_branches - 1) {
+                        std.debug.print("└── => ", .{});
+                    } else {
+                        std.debug.print("├── => ", .{});
+                    }
+
+                    if (branch.pattern.namespace) |ns| {
+                        std.debug.print("{s}::", .{ns});
+                    }
+                    std.debug.print("{s}", .{branch.pattern.name});
+
+                    if (branch.pattern.bindings.len > 0) {
+                        std.debug.print(" (", .{});
+                        for (branch.pattern.bindings, 0..) |bind, b_idx| {
+                            if (b_idx > 0) std.debug.print(", ", .{});
+                            std.debug.print("{s}", .{bind});
+                        }
+                        std.debug.print(")", .{});
+                    }
+                    std.debug.print(":\n", .{});
+
+                    branch.body.dump(indent + 2, idx == total_branches - 1, child_mask);
+                }
+            },
+            .VariantAccess => |va| {
+                std.debug.print("[VariantAccess: {s}::{s}]\n", .{ va.namespace, va.variant });
+            },
+            .VariantCall => |vc| {
+                std.debug.print("[VariantCall: {s}::{s}]\n", .{ vc.namespace, vc.variant });
+                const len = vc.arguments.len;
+                for (vc.arguments, 0..) |arg, idx| {
+                    arg.dump(indent + 1, idx == len - 1, child_mask);
                 }
             },
         }
