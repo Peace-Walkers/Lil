@@ -250,6 +250,29 @@ pub const Parser = struct {
         return expr;
     }
 
+    fn parse_lambda(self: *Self) ParseError!ast.Node {
+        var params: std.ArrayList([]const u8) = .empty;
+
+        if (self.current.tag != .Pipe) {
+            while (true) {
+                try self.consume(.Identifier, "Expected parameter name in lambda.");
+                try params.append(self.arena, self.previous.lexeme);
+                if (!self.match(.Comma)) break;
+            }
+        }
+
+        try self.consume(.Pipe, "Expected '|' to close lambda parameters.");
+
+        const body_node = try self.parse_expr();
+        const heap_body = try self.arena.create(ast.Node);
+        heap_body.* = body_node;
+
+        return .{ .Lambda = .{
+            .params = try params.toOwnedSlice(self.arena),
+            .body = heap_body,
+        } };
+    }
+
     fn parse_match(self: *Self) ParseError!ast.Node {
         const target_node = try self.parse_expr();
         const target_ptr = try self.arena.create(ast.Node);
@@ -503,6 +526,7 @@ pub const Parser = struct {
 
         if (self.match(.Match)) return try self.parse_match();
 
+        if (self.match(.Pipe)) return try self.parse_lambda();
         if (self.match(.LBrace)) return try self.parse_table();
 
         if (self.match(.Fn)) return try self.parse_fn();

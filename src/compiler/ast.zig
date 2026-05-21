@@ -118,6 +118,11 @@ pub const Node = union(enum) {
         branches: []const MatchBranch,
     },
 
+    Lambda: struct {
+        params: []const []const u8,
+        body: *Node,
+    },
+
     pub fn dump(self: Node, indent: usize, is_last: bool, depth_mask: u64) void {
         if (indent > 0) {
             var i: usize = 0;
@@ -324,6 +329,15 @@ pub const Node = union(enum) {
                 for (vc.arguments, 0..) |arg, idx| {
                     arg.dump(indent + 1, idx == len - 1, child_mask);
                 }
+            },
+            .Lambda => |lambda| {
+                std.debug.print("[Lambda] |", .{});
+                for (lambda.params, 0..) |param, p_idx| {
+                    if (p_idx > 0) std.debug.print(", ", .{});
+                    std.debug.print("{s}", .{param});
+                }
+                std.debug.print("|\n", .{});
+                lambda.body.dump(indent + 1, true, child_mask);
             },
         }
     }

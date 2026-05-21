@@ -50,9 +50,7 @@ let user = {
 
 let ages = {25, 30, 18}
 
-let doubled = vec.map(fn(e):
-  return e * 2
-)
+let doubled = ages.map(|e| e * 2)
 
 let cmts = user.commits()
 
