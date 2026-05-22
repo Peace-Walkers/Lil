@@ -101,6 +101,19 @@ pub const VM = struct {
                     const value = self.pop();
                     try self.globals.put(name, value);
                 },
+                .OP_SET_GLOBAL => {
+                    const name_val = self.reasConstant();
+                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name = name_obj.chars;
+
+                    if (!self.globals.contains(name)) {
+                        std.debug.print("Error undefined variable: '{s}'.\n", .{name});
+                        return error.RuntimeError;
+                    }
+
+                    const value = self.peek(0);
+                    try self.globals.put(name, value);
+                },
                 .OP_GET_GLOBAL => {
                     const name_val = self.reasConstant();
                     const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);

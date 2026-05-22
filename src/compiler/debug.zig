@@ -41,6 +41,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SET_LOCAL => return byteInstruction("OP_SET_LOCAL", chunk, offset),
         .OP_JUMP => return jumpInstruction("OP_JUMP", 1, chunk, offset),
         .OP_JUMP_IF_FALSE => return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset),
+        .OP_SET_GLOBAL => return constantInstruction("OP_SET_GLOBAL", chunk, offset),
         else => {
             std.debug.print("{s:<16}\n", .{@tagName(op)});
             return offset + 1;

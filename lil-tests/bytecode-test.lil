@@ -1,13 +1,11 @@
-#let a = 10
-#let b = 9
+let a = 10
+let b = 9
 
-#let c = a + b
-
-let global = 0 
+mut global = 0 
 
 if global:
   let local = 20
-  let res = local + global
+  global = local + a + b 
 else:
   let bouzelouf = 90
-  let electron = bouzelouf + global
+  global = bouzelouf + a + b

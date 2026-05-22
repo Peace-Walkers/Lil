@@ -9,6 +9,7 @@ const Value = value_mod.Value;
 pub const Local = struct {
     name: []const u8,
     depth: usize,
+    is_mut: bool,
 };
 
 pub const Compiler = struct {
@@ -21,6 +22,8 @@ pub const Compiler = struct {
     local_count: usize,
     scope_depth: usize,
 
+    known_globals: std.StringHashMap(bool),
+
     pub fn init(allocator: std.mem.Allocator, chunk: *Chunk) Compiler {
         return .{
             .allocator = allocator,
@@ -28,7 +31,12 @@ pub const Compiler = struct {
             .locals = undefined,
             .local_count = 0,
             .scope_depth = 0,
+            .known_globals = std.StringHashMap(bool).init(allocator),
         };
+    }
+
+    fn deinit(self: *Self) void {
+        self.known_globals.deinit();
     }
 
     fn emitByte(self: *Self, byte: u8) !void {
@@ -100,6 +108,25 @@ pub const Compiler = struct {
         return null;
     }
 
+    fn compileVariable(self: *Compiler, name: []const u8, initializer: ast.Node, is_mut: bool) !void {
+        try self.compile(initializer);
+
+        if (self.scope_depth > 0) {
+            self.locals[self.local_count] = .{
+                .name = name,
+                .depth = self.scope_depth,
+                .is_mut = is_mut,
+            };
+            self.local_count += 1;
+        } else {
+            // C'est une globale
+            try self.known_globals.put(name, is_mut);
+            const name_index = try self.emitStringConstant(name);
+            try self.emitOp(.OP_DEFINE_GLOBAL);
+            try self.emitByte(name_index);
+        }
+    }
+
     pub fn compile(self: *Compiler, node: ast.Node) anyerror!void {
         switch (node) {
             .Number => |n| {
@@ -120,20 +147,11 @@ pub const Compiler = struct {
                     },
                 }
             },
-            .LetDeclaration => |let_decl| {
-                try self.compile(let_decl.initializer.*);
-
-                if (self.scope_depth > 0) {
-                    self.locals[self.local_count] = .{
-                        .name = let_decl.name,
-                        .depth = self.scope_depth,
-                    };
-                    self.local_count += 1;
-                } else {
-                    const name_index = try self.emitStringConstant(let_decl.name);
-                    try self.emitOp(.OP_DEFINE_GLOBAL);
-                    try self.emitByte(name_index);
-                }
+            .LetDeclaration => |decl| {
+                try self.compileVariable(decl.name, decl.initializer.*, false);
+            },
+            .MutDeclaration => |decl| {
+                try self.compileVariable(decl.name, decl.initializer.*, true);
             },
             .Identifier => |name| {
                 if (self.resolveLocal(name)) |local_idx| {
@@ -168,6 +186,29 @@ pub const Compiler = struct {
                 }
 
                 self.patchJump(else_jump);
+            },
+            .Assignment => |assign| {
+                if (self.resolveLocal(assign.name)) |local_index| {
+                    if (!self.locals[local_index].is_mut) {
+                        std.debug.print("Error: you cannot mutate a constant variable: '{s}'.\n", .{assign.name});
+                        return error.CompileError;
+                    }
+                    try self.compile(assign.value.*);
+                    try self.emitOp(.OP_SET_LOCAL);
+                    try self.emitByte(local_index);
+                } else if (self.known_globals.get(assign.name)) |is_mut| {
+                    if (!is_mut) {
+                        std.debug.print("Error: you cannot mutate a constant variable: '{s}'.\n", .{assign.name});
+                        return error.CompileError;
+                    }
+                    try self.compile(assign.value.*);
+                    const name_index = try self.emitStringConstant(assign.name);
+                    try self.emitOp(.OP_SET_GLOBAL);
+                    try self.emitByte(name_index);
+                } else {
+                    std.debug.print("Error: unknown variable '{s}'\n", .{assign.name});
+                    return error.CompileError;
+                }
             },
             .Root => |root| {
                 for (root.statements) |stmt| {
