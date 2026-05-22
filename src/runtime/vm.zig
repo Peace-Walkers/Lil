@@ -133,6 +133,13 @@ pub const VM = struct {
                     const result = a.Number + b.Number;
                     self.push(.{ .Number = result });
                 },
+                .OP_SUBTRACT => {
+                    const b = self.pop();
+                    const a = self.pop();
+
+                    const result = a.Number - b.Number;
+                    self.push(.{ .Number = result });
+                },
                 .OP_RETURN => {
                     std.debug.print("====FINAL MEMORY STATE====\n", .{});
                     var it = self.globals.iterator();
@@ -159,6 +166,10 @@ pub const VM = struct {
                     if (isFalsey(self.peek(0))) {
                         self.ip += offset;
                     }
+                },
+                .OP_LOOP => {
+                    const offset = self.readShort();
+                    self.ip -= offset;
                 },
                 .OP_JUMP => {
                     const offset = self.readShort();

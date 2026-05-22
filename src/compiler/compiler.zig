@@ -71,6 +71,18 @@ pub const Compiler = struct {
         return self.current_chunk.code.items.len - 2;
     }
 
+    fn emitLoop(self: *Compiler, loop_start: usize) !void {
+        try self.emitOp(.OP_LOOP);
+        const jump = self.current_chunk.code.items.len - loop_start + 2;
+        if (jump > std.math.maxInt(u16)) {
+            std.debug.print("Error: code block to large.\n", .{});
+            return;
+        }
+
+        try self.emitByte(@intCast((jump >> 8) & 0xff));
+        try self.emitByte(@intCast(jump & 0xff));
+    }
+
     fn patchJump(self: *Self, offset: usize) void {
         const jump = self.current_chunk.code.items.len - offset - 2;
 
@@ -186,6 +198,18 @@ pub const Compiler = struct {
                 }
 
                 self.patchJump(else_jump);
+            },
+            .WhileStatement => |while_stmt| {
+                const loop_start = self.current_chunk.code.items.len;
+                try self.compile(while_stmt.condition.*);
+
+                const exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+                try self.emitOp(.OP_POP);
+
+                try self.compile(while_stmt.body.*);
+                try self.emitLoop(loop_start);
+                self.patchJump(exit_jump);
+                try self.emitOp(.OP_POP);
             },
             .Assignment => |assign| {
                 if (self.resolveLocal(assign.name)) |local_index| {

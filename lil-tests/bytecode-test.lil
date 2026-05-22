@@ -9,3 +9,8 @@ if global:
 else:
   let bouzelouf = 90
   global = bouzelouf + a + b
+
+mut i = 10
+
+while i:
+  i = i - 1
