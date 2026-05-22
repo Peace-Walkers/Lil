@@ -656,3 +656,237 @@ pub const Parser = struct {
         return .{ .Root = .{ .statements = try statement.toOwnedSlice(self.arena) } };
     }
 };
+
+const testing = std.testing;
+
+// --- Helper function to simplify test setup ---
+fn setupParserTest(allocator: std.mem.Allocator, source: []const u8) !ast.Node {
+    var scanner = lexer.Lexer.init(source);
+    var prsr = Parser.init(&scanner, allocator);
+    return prsr.parse();
+}
+
+test "parser: let and mut declarations" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\let a = 10
+        \\mut b = "hello"
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const stmts = root.Root.statements;
+
+    try testing.expectEqual(@as(usize, 2), stmts.len);
+
+    // Test 'let a = 10'
+    try testing.expectEqual(.LetDeclaration, std.meta.activeTag(stmts[0]));
+    try testing.expectEqualStrings("a", stmts[0].LetDeclaration.name);
+    try testing.expectEqual(.Number, std.meta.activeTag(stmts[0].LetDeclaration.initializer.*));
+    try testing.expectEqual(@as(i64, 10), stmts[0].LetDeclaration.initializer.*.Number);
+
+    // Test 'mut b = "hello"'
+    try testing.expectEqual(.MutDeclaration, std.meta.activeTag(stmts[1]));
+    try testing.expectEqualStrings("b", stmts[1].MutDeclaration.name);
+    try testing.expectEqual(.String, std.meta.activeTag(stmts[1].MutDeclaration.initializer.*));
+    try testing.expectEqualStrings("\"hello\"", stmts[1].MutDeclaration.initializer.*.String);
+}
+
+test "parser: operator precedence (math and logical)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    // 1 + 2 * 3 should parse as 1 + (2 * 3)
+    const source = "let x = 1 + 2 * 3 > 10 and true";
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const stmt = root.Root.statements[0];
+
+    try testing.expectEqual(.LetDeclaration, std.meta.activeTag(stmt));
+    const expr = stmt.LetDeclaration.initializer.*;
+
+    // Top level should be 'and'
+    try testing.expectEqual(.Binary, std.meta.activeTag(expr));
+    try testing.expectEqual(.And, expr.Binary.operator);
+
+    // Left of 'and' should be '>'
+    const cmp = expr.Binary.left.*;
+    try testing.expectEqual(.Binary, std.meta.activeTag(cmp));
+    try testing.expectEqual(.Greater, cmp.Binary.operator);
+
+    // Left of '>' should be '+'
+    const add = cmp.Binary.left.*;
+    try testing.expectEqual(.Binary, std.meta.activeTag(add));
+    try testing.expectEqual(.Plus, add.Binary.operator);
+
+    // Right of '+' should be '*'
+    const mul = add.Binary.right.*;
+    try testing.expectEqual(.Binary, std.meta.activeTag(mul));
+    try testing.expectEqual(.Star, mul.Binary.operator);
+}
+
+test "parser: function declaration and return" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\fn add(a, b):
+        \\    return a + b
+        \\
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const stmts = root.Root.statements;
+
+    try testing.expectEqual(@as(usize, 1), stmts.len);
+
+    const func = stmts[0];
+    try testing.expectEqual(.FnDeclaration, std.meta.activeTag(func));
+    try testing.expectEqualStrings("add", func.FnDeclaration.name);
+
+    const params = func.FnDeclaration.params;
+    try testing.expectEqual(@as(usize, 2), params.len);
+    try testing.expectEqualStrings("a", params[0]);
+    try testing.expectEqualStrings("b", params[1]);
+
+    const body = func.FnDeclaration.body.*;
+    try testing.expectEqual(.Block, std.meta.activeTag(body));
+
+    const ret = body.Block.statements[0];
+    try testing.expectEqual(.ReturnStatement, std.meta.activeTag(ret));
+    try testing.expectEqual(.Binary, std.meta.activeTag(ret.ReturnStatement.value.?.*));
+}
+
+test "parser: if / else block" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\if x > 10:
+        \\    let y = 1
+        \\else:
+        \\    let y = 2
+        \\
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const stmt = root.Root.statements[0];
+
+    try testing.expectEqual(.IfStatement, std.meta.activeTag(stmt));
+    const if_stmt = stmt.IfStatement;
+
+    try testing.expectEqual(.Binary, std.meta.activeTag(if_stmt.condition.*));
+    try testing.expectEqual(.Block, std.meta.activeTag(if_stmt.then_branch.*));
+    try testing.expect(if_stmt.else_branch != null);
+    try testing.expectEqual(.Block, std.meta.activeTag(if_stmt.else_branch.?.*));
+}
+
+test "parser: tables (records and arrays)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\let user = {
+        \\    name: "imad",
+        \\    age: 30,
+        \\    42
+        \\}
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const table_expr = root.Root.statements[0].LetDeclaration.initializer.*;
+
+    try testing.expectEqual(.Table, std.meta.activeTag(table_expr));
+    const table = table_expr.Table;
+
+    try testing.expectEqual(@as(usize, 2), table.fields.len);
+    try testing.expectEqualStrings("name", table.fields[0].key);
+    try testing.expectEqualStrings("age", table.fields[1].key);
+
+    try testing.expectEqual(@as(usize, 1), table.elements.len);
+    try testing.expectEqual(.Number, std.meta.activeTag(table.elements[0]));
+    try testing.expectEqual(@as(i64, 42), table.elements[0].Number);
+}
+
+test "parser: algebraic data types (ADT)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\type Option =
+        \\    | Some(value)
+        \\    | None
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const type_decl = root.Root.statements[0];
+
+    try testing.expectEqual(.TypeDeclaration, std.meta.activeTag(type_decl));
+    try testing.expectEqualStrings("Option", type_decl.TypeDeclaration.name);
+
+    const variants = type_decl.TypeDeclaration.variants;
+    try testing.expectEqual(@as(usize, 2), variants.len);
+
+    try testing.expectEqualStrings("Some", variants[0].name);
+    try testing.expectEqual(@as(usize, 1), variants[0].params.len);
+    try testing.expectEqualStrings("value", variants[0].params[0]);
+
+    try testing.expectEqualStrings("None", variants[1].name);
+    try testing.expectEqual(@as(usize, 0), variants[1].params.len);
+}
+
+test "parser: pattern matching" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\let res = match opt:
+        \\    Option::Some(v) => v * 2
+        \\    Option::None => 0
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const match_expr = root.Root.statements[0].LetDeclaration.initializer.*;
+
+    try testing.expectEqual(.MatchExpression, std.meta.activeTag(match_expr));
+    const m = match_expr.MatchExpression;
+
+    try testing.expectEqual(.Identifier, std.meta.activeTag(m.target.*));
+    try testing.expectEqual(@as(usize, 2), m.branches.len);
+
+    // Test branch 1 (Option::Some(v))
+    const b1 = m.branches[0];
+    try testing.expectEqualStrings("Option", b1.pattern.namespace.?);
+    try testing.expectEqualStrings("Some", b1.pattern.name);
+    try testing.expectEqualStrings("v", b1.pattern.bindings[0]);
+    try testing.expectEqual(.Binary, std.meta.activeTag(b1.body));
+
+    // Test branch 2 (Option::None)
+    const b2 = m.branches[1];
+    try testing.expectEqualStrings("Option", b2.pattern.namespace.?);
+    try testing.expectEqualStrings("None", b2.pattern.name);
+    try testing.expectEqual(@as(usize, 0), b2.pattern.bindings.len);
+    try testing.expectEqual(.Number, std.meta.activeTag(b2.body));
+}
+
+test "parser: method calls and lambdas" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source = "let mapped = users.map(|u| u.age)";
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const mcall = root.Root.statements[0].LetDeclaration.initializer.*;
+
+    try testing.expectEqual(.MethodCall, std.meta.activeTag(mcall));
+    try testing.expectEqualStrings("map", mcall.MethodCall.method);
+
+    const args = mcall.MethodCall.arguments;
+    try testing.expectEqual(@as(usize, 1), args.len);
+
+    try testing.expectEqual(.Lambda, std.meta.activeTag(args[0]));
+    const lambda = args[0].Lambda;
+    try testing.expectEqualStrings("u", lambda.params[0]);
+    try testing.expectEqual(.Get, std.meta.activeTag(lambda.body.*));
+}
