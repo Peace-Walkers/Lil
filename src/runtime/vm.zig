@@ -5,6 +5,7 @@ const Chunk = chunk_mod.Chunk;
 const value_mod = @import("../compiler/value.zig");
 const Value = value_mod.Value;
 const ObjString = value_mod.ObjString;
+const debug = @import("../compiler/debug.zig");
 
 pub const VmError = error{
     CompileError,
@@ -54,6 +55,23 @@ pub const VM = struct {
         return byte;
     }
 
+    fn readShort(self: *Self) u16 {
+        self.ip += 2;
+        return (@as(u16, self.chunk.code.items[self.ip - 2]) << 8) | self.chunk.code.items[self.ip - 1];
+    }
+
+    fn peek(self: *Self, distance: usize) Value {
+        return self.stack[self.stack_top - 1 - distance];
+    }
+
+    fn isFalsey(value: Value) bool {
+        switch (value) {
+            .Number => |n| return n == 0,
+            .Boolean => |b| return !b,
+            else => return false,
+        }
+    }
+
     fn reasConstant(self: *Self) Value {
         return self.chunk.constants.items[self.readByte()];
     }
@@ -66,6 +84,7 @@ pub const VM = struct {
 
     fn run(self: *Self) !void {
         while (true) {
+            _ = debug.disassembleInstruction(self.chunk, self.ip) catch 0;
             const instruction = self.readByte();
             const op: OpCode = @enumFromInt(instruction);
 
@@ -110,6 +129,27 @@ pub const VM = struct {
                         std.debug.print("\n", .{});
                     }
                     return;
+                },
+                .OP_POP => {
+                    _ = self.pop();
+                },
+                .OP_GET_LOCAL => {
+                    const slot = self.readByte();
+                    self.push(self.stack[slot]);
+                },
+                .OP_SET_LOCAL => {
+                    const slot = self.readByte();
+                    self.stack[slot] = self.stack[self.stack_top - 1];
+                },
+                .OP_JUMP_IF_FALSE => {
+                    const offset = self.readShort();
+                    if (isFalsey(self.peek(0))) {
+                        self.ip += offset;
+                    }
+                },
+                .OP_JUMP => {
+                    const offset = self.readShort();
+                    self.ip += offset;
                 },
                 else => {
                     std.debug.print("Error: Invalid OpCode.\n", .{});

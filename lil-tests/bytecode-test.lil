@@ -1,4 +1,13 @@
-let a = 10
-let b = 9
+#let a = 10
+#let b = 9
 
-let c = a + b
+#let c = a + b
+
+let global = 0 
+
+if global:
+  let local = 20
+  let res = local + global
+else:
+  let bouzelouf = 90
+  let electron = bouzelouf + global

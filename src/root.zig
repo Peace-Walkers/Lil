@@ -26,11 +26,6 @@ pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
 
     try debug.disassembleChunk(&chunk, "Bytecode");
 
-    std.debug.print("Compilation réussie ! Le Chunk contient {d} octets et {d} constantes.\n", .{
-        chunk.code.items.len,
-        chunk.constants.items.len,
-    });
-
     var vm = VM.init(allocator);
     defer vm.deinit();
     try vm.interpret(&chunk);
