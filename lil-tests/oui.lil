@@ -29,3 +29,4 @@ let check = match config.version:
     | _ => "Unknown"
 
 let is_valid = (10 > 5) or (10 != 5) == true
+

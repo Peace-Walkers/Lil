@@ -1,0 +1,65 @@
+let a = 10
+mut name = "Lilang"
+let oui = 10 + 5 * 2 
+let non = false
+let cmp = 10 + 5 >= 20
+let ORR = 10 * 9 > 87 or 56 > 5 and 90 < 100
+
+let z = 10 + 5
+let b = 40 + 2
+let c = z * b
+
+name = "Lil"
+
+mut zoo = ""
+
+
+if a > oui:
+  zoo = "elephant"
+else:
+  zoo = "rabbit"
+
+mut i = 0
+
+while i < 10:
+  i = i + 1
+
+# function declaration
+fn add(a, b):
+  return a + b
+
+
+fn cmp(a, b):
+  if a == b:
+    return true
+  return false
+
+
+mut result = 0
+if (cmp(oui,  a)):
+  result = add(oui, a)
+
+
+let user = {
+    username: "pepedinho",
+    stats: {commits: 500},
+
+    fn commits(self):
+      return self.stats.commits
+}
+
+let ages = {25, 30, 18}
+
+let doubled = ages.map(|e| e * 2)
+
+let cmts = user.commits()
+
+type Option = 
+  | Some(val)
+  | None
+
+let option = Option::Some(10)
+
+let val = match option:
+  Option::Some(x) => x * 2
+  Option::None => 0

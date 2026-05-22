@@ -1,5 +1,6 @@
 const std = @import("std");
 const lexer = @import("compiler/lexer.zig");
+const parser = @import("compiler/parser.zig");
 
 pub const VM = struct {
     allocator: std.mem.Allocator,
@@ -13,7 +14,6 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *VM, source: []const u8) !void {
-        _ = self;
         var scanner = lexer.Lexer.init(source);
         const is_testing = @import("builtin").is_test;
         if (!is_testing)
@@ -33,6 +33,24 @@ pub const VM = struct {
         if (!is_testing)
             std.debug.print("=================\n", .{});
 
+        var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+        var new_scanner = lexer.Lexer.init(source);
+        var prsr = parser.Parser.init(&new_scanner, arena);
+
+        if (!is_testing) {
+            std.debug.print("=====AST=====\n", .{});
+
+            const tree = prsr.parse() catch |err| {
+                std.debug.print("Parser failed with error: {}\n", .{err});
+                return;
+            };
+
+            tree.dump(0, true, 0);
+            std.debug.print("=================\n", .{});
+        }
+
         // std.debug.print("Lil interpret : {s}\n", .{source});
     }
 };
@@ -46,4 +64,3 @@ test "init VM" {
 test {
     _ = @import("compiler/lexer.zig");
 }
-
