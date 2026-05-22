@@ -17,9 +17,6 @@ pub fn main(init: std.process.Init) !void {
     var stdin_file_reader: Io.File.Reader = .init(.stdin(), io, &stdin_buffer);
     const stdin_reader = &stdin_file_reader.interface;
 
-    var vm = lil.VM.init(arena);
-    defer vm.deinit();
-
     if (args.len == 1) {
         try stdout_writer.print("LiLang v0.1.0 - REPL (Ctrl + C to exit)\n", .{});
         try stdout_writer.flush();
@@ -34,11 +31,7 @@ pub fn main(init: std.process.Init) !void {
                 break;
             };
             std.log.info("read finish", .{});
-            if (line_or_eof != 0) {
-                vm.interpret(&stdin_buffer) catch |err| {
-                    stdout_writer.print("Error: {}\n", .{err});
-                };
-            } else {
+            if (line_or_eof != 0) {} else {
                 try stdout_writer.print("\nBye!\n", .{});
                 break;
             }
@@ -50,7 +43,7 @@ pub fn main(init: std.process.Init) !void {
             return;
         };
 
-        try vm.interpret(source);
+        try lil.interpret(arena, source);
     } else {
         try stdout_writer.print("Usage: lilang <script path>\n", .{});
     }
