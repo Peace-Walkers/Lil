@@ -5,6 +5,8 @@ const Opcode = chunk_mod.OpCode;
 const Chunk = chunk_mod.Chunk;
 const value_mod = @import("value.zig");
 const Value = value_mod.Value;
+const FunctionObj = value_mod.FunctionObj;
+const ObjString = value_mod.ObjString;
 
 pub const Local = struct {
     name: []const u8,
@@ -25,7 +27,7 @@ pub const Compiler = struct {
     known_globals: std.StringHashMap(bool),
 
     pub fn init(allocator: std.mem.Allocator, chunk: *Chunk) Compiler {
-        return .{
+        var comp = Compiler{
             .allocator = allocator,
             .current_chunk = chunk,
             .locals = undefined,
@@ -33,6 +35,15 @@ pub const Compiler = struct {
             .scope_depth = 0,
             .known_globals = std.StringHashMap(bool).init(allocator),
         };
+
+        comp.locals[0] = .{
+            .name = "",
+            .depth = 0,
+            .is_mut = false,
+        };
+        comp.local_count = 1;
+
+        return comp;
     }
 
     fn deinit(self: *Self) void {
@@ -238,6 +249,74 @@ pub const Compiler = struct {
                 for (root.statements) |stmt| {
                     try self.compile(stmt);
                 }
+            },
+            .FnDeclaration => |fn_decl| {
+                var fn_obj = try self.allocator.create(FunctionObj);
+
+                const name_obj = try self.allocator.create(ObjString);
+                name_obj.* = .{
+                    .obj = .{ .obj_type = .String, .next = null },
+                    .chars = fn_decl.name,
+                };
+
+                fn_obj.* = .{
+                    .obj = .{ .obj_type = .Function, .next = null },
+                    .arity = fn_decl.params.len,
+                    .chunk = Chunk.init(self.allocator),
+                    .name = name_obj,
+                };
+
+                var fn_comp = Compiler.init(self.allocator, &fn_obj.chunk);
+
+                fn_comp.locals[0] = .{ .name = "", .depth = 0, .is_mut = false };
+                fn_comp.local_count = 1;
+                fn_comp.scope_depth = 1;
+
+                for (fn_decl.params) |param| {
+                    fn_comp.locals[fn_comp.local_count] = .{
+                        .name = param,
+                        .depth = 1,
+                        .is_mut = true,
+                    };
+                    fn_comp.local_count += 1;
+                }
+
+                try fn_comp.compile(fn_decl.body.*);
+
+                const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
+                try fn_comp.emitOp(.OP_CONSTANT);
+                try fn_comp.emitByte(zero_idx);
+                try fn_comp.emitOp(.OP_RETURN);
+
+                const func_idx = try self.current_chunk.addConstant(.{ .Object = &fn_obj.obj });
+                try self.emitOp(.OP_CONSTANT);
+                try self.emitByte(func_idx);
+
+                try self.known_globals.put(fn_decl.name, false);
+                const name_index = try self.emitStringConstant(fn_decl.name);
+                try self.emitOp(.OP_DEFINE_GLOBAL);
+                try self.emitByte(name_index);
+            },
+            .ReturnStatement => |ret| {
+                if (ret.value) |val| {
+                    try self.compile(val.*);
+                } else {
+                    //INFO:  return 0 by default
+                    const zero_idx = try self.current_chunk.addConstant(.{ .Number = 0 });
+                    try self.emitOp(.OP_CONSTANT);
+                    try self.emitByte(zero_idx);
+                }
+                try self.emitOp(.OP_RETURN);
+            },
+            .Call => |call| {
+                try self.compile(call.callee.*);
+
+                for (call.arguments) |arg| {
+                    try self.compile(arg);
+                }
+
+                try self.emitOp(.OP_CALL);
+                try self.emitByte(@intCast(call.arguments.len));
             },
             else => {
                 std.debug.print("Unsupported node: {s}\n", .{@tagName(node)});

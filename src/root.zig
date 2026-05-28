@@ -2,6 +2,7 @@ const std = @import("std");
 const lexer = @import("compiler/lexer.zig");
 const parser = @import("compiler/parser.zig");
 const chunk_mod = @import("compiler/chunk.zig");
+const value_mod = @import("compiler/value.zig");
 const compiler = @import("compiler/compiler.zig");
 const debug = @import("compiler/debug.zig");
 const VM = @import("runtime/vm.zig").VM;
@@ -26,9 +27,20 @@ pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
 
     try debug.disassembleChunk(&chunk, "Bytecode");
 
+    const script_function = try allocator.create(value_mod.FunctionObj);
+    defer allocator.destroy(script_function);
+
+    script_function.* = .{
+        .obj = .{ .obj_type = .Function, .next = null },
+        .arity = 0,
+        .chunk = chunk,
+        .name = null,
+    };
+
     var vm = VM.init(allocator);
     defer vm.deinit();
-    try vm.interpret(&chunk);
+
+    try vm.interpret(script_function);
 }
 
 test {

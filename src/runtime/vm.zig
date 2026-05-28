@@ -5,6 +5,7 @@ const Chunk = chunk_mod.Chunk;
 const value_mod = @import("../compiler/value.zig");
 const Value = value_mod.Value;
 const ObjString = value_mod.ObjString;
+const FunctionObj = value_mod.FunctionObj;
 const debug = @import("../compiler/debug.zig");
 
 pub const VmError = error{
@@ -12,12 +13,22 @@ pub const VmError = error{
     RuntimeError,
 };
 
+const CallFrame = struct {
+    function: *FunctionObj,
+    /// instruction pointer
+    ip: usize,
+    /// stack index for local variables
+    slot_offset: usize,
+};
+
 pub const VM = struct {
     const Self = @This();
 
-    chunk: *Chunk,
-    ip: usize, // instruction pointer
+    // Call Stack
+    frames: [64]CallFrame,
+    frame_count: usize,
 
+    // Value Stack
     stack: [256]Value,
     stack_top: usize,
 
@@ -26,17 +37,21 @@ pub const VM = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .chunk = undefined,
-            .ip = 0,
+            .frames = undefined,
             .stack = undefined,
             .stack_top = 0,
             .globals = std.StringHashMap(Value).init(allocator),
             .allocator = allocator,
+            .frame_count = 0,
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.globals.deinit();
+    }
+
+    fn currentFrame(self: *Self) *CallFrame {
+        return &self.frames[self.frame_count - 1];
     }
 
     fn push(self: *Self, value: Value) void {
@@ -50,14 +65,16 @@ pub const VM = struct {
     }
 
     fn readByte(self: *Self) u8 {
-        const byte = self.chunk.code.items[self.ip];
-        self.ip += 1;
+        var frame = self.currentFrame();
+        const byte = frame.function.chunk.code.items[frame.ip];
+        frame.ip += 1;
         return byte;
     }
 
     fn readShort(self: *Self) u16 {
-        self.ip += 2;
-        return (@as(u16, self.chunk.code.items[self.ip - 2]) << 8) | self.chunk.code.items[self.ip - 1];
+        var frame = self.currentFrame();
+        frame.ip += 2;
+        return (@as(u16, frame.function.chunk.code.items[frame.ip - 2]) << 8) | frame.function.chunk.code.items[frame.ip - 1];
     }
 
     fn peek(self: *Self, distance: usize) Value {
@@ -73,18 +90,28 @@ pub const VM = struct {
     }
 
     fn reasConstant(self: *Self) Value {
-        return self.chunk.constants.items[self.readByte()];
+        const frame = self.currentFrame();
+        return frame.function.chunk.constants.items[self.readByte()];
     }
 
-    pub fn interpret(self: *Self, chunk: *Chunk) !void {
-        self.chunk = chunk;
-        self.ip = 0;
+    pub fn interpret(self: *Self, function: *FunctionObj) !void {
+        self.push(.{ .Object = &function.obj });
+
+        self.frames[0] = .{
+            .function = function,
+            .ip = 0,
+            .slot_offset = 0,
+        };
+        self.frame_count = 1;
         return self.run();
     }
 
     fn run(self: *Self) !void {
         while (true) {
-            _ = debug.disassembleInstruction(self.chunk, self.ip) catch 0;
+            var frame = self.currentFrame();
+
+            _ = debug.disassembleInstruction(&frame.function.chunk, frame.ip) catch 0;
+
             const instruction = self.readByte();
             const op: OpCode = @enumFromInt(instruction);
 
@@ -141,39 +168,74 @@ pub const VM = struct {
                     self.push(.{ .Number = result });
                 },
                 .OP_RETURN => {
-                    std.debug.print("====FINAL MEMORY STATE====\n", .{});
-                    var it = self.globals.iterator();
-                    while (it.next()) |entry| {
-                        std.debug.print("{s} = ", .{entry.key_ptr.*});
-                        entry.value_ptr.*.print();
-                        std.debug.print("\n", .{});
+                    const result = self.pop();
+                    self.frame_count -= 1;
+
+                    if (self.frame_count == 0) {
+                        std.debug.print("====FINAL MEMORY STATE====\n", .{});
+                        var it = self.globals.iterator();
+                        while (it.next()) |entry| {
+                            std.debug.print("{s} = ", .{entry.key_ptr.*});
+                            entry.value_ptr.*.print();
+                            std.debug.print("\n", .{});
+                        }
+                        return;
                     }
-                    return;
+
+                    self.stack_top = self.frames[self.frame_count].slot_offset;
+                    self.push(result);
                 },
                 .OP_POP => {
                     _ = self.pop();
                 },
                 .OP_GET_LOCAL => {
                     const slot = self.readByte();
-                    self.push(self.stack[slot]);
+                    self.push(self.stack[frame.slot_offset + slot]);
                 },
                 .OP_SET_LOCAL => {
                     const slot = self.readByte();
-                    self.stack[slot] = self.stack[self.stack_top - 1];
+                    self.stack[frame.slot_offset + slot] = self.peek(0);
                 },
                 .OP_JUMP_IF_FALSE => {
                     const offset = self.readShort();
                     if (isFalsey(self.peek(0))) {
-                        self.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .OP_LOOP => {
                     const offset = self.readShort();
-                    self.ip -= offset;
+                    frame.ip -= offset;
                 },
                 .OP_JUMP => {
                     const offset = self.readShort();
-                    self.ip += offset;
+                    frame.ip += offset;
+                },
+                .OP_CALL => {
+                    const arg_count = self.readByte();
+                    const callee = self.peek(arg_count);
+
+                    if (callee != .Object or callee.Object.obj_type != .Function) {
+                        std.debug.print("Runtime Error: Can only call function.\n", .{});
+                        return error.RuntimeError;
+                    }
+                    const func: *FunctionObj = @fieldParentPtr("obj", callee.Object);
+
+                    if (arg_count != func.arity) {
+                        std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
+                        return error.RuntimeError;
+                    }
+
+                    if (self.frame_count == 64) {
+                        std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    self.frames[self.frame_count] = .{
+                        .function = func,
+                        .ip = 0,
+                        .slot_offset = self.stack_top - arg_count - 1,
+                    };
+                    self.frame_count += 1;
                 },
                 else => {
                     std.debug.print("Error: Invalid OpCode.\n", .{});
