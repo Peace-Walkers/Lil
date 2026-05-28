@@ -2,3 +2,11 @@ fn add(x, y):
   return x + y
 
 let result = add(10, 5)
+
+let table = {
+  username: "oui",
+  stats: {commit: 500},
+
+  fn commit(self):
+    return self.stats.commit
+}

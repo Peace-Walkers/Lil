@@ -6,6 +6,7 @@ const value_mod = @import("../compiler/value.zig");
 const Value = value_mod.Value;
 const ObjString = value_mod.ObjString;
 const FunctionObj = value_mod.FunctionObj;
+const TableObj = value_mod.TableObj;
 const debug = @import("../compiler/debug.zig");
 
 pub const VmError = error{
@@ -152,6 +153,35 @@ pub const VM = struct {
                         std.debug.print("Runtime Error: undefined var: {s}\n", .{name});
                         return error.RuntimeError;
                     }
+                },
+                .OP_BUILD_TABLE => {
+                    const array_count = self.readByte();
+                    const dict_count = self.readByte();
+
+                    var table_obj = try self.allocator.create(TableObj);
+                    table_obj.* = .{
+                        .obj = .{ .obj_type = .Table, .next = null },
+                        .fields = std.StringHashMap(Value).init(self.allocator),
+                        .elements = .empty,
+                    };
+
+                    var i: usize = 0;
+                    while (i < dict_count) : (i += 1) {
+                        const value = self.pop();
+                        const key_val = self.pop();
+
+                        const key_obj: *ObjString = @fieldParentPtr("obj", key_val.Object);
+                        try table_obj.fields.put(key_obj.chars, value);
+                    }
+
+                    try table_obj.elements.resize(self.allocator, array_count);
+                    var j: usize = array_count;
+                    while (j > 0) {
+                        j -= 1;
+                        table_obj.elements.items[j] = self.pop();
+                    }
+
+                    self.push(.{ .Object = &table_obj.obj });
                 },
                 .OP_ADD => {
                     const b = self.pop();

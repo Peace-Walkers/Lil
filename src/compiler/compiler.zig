@@ -150,10 +150,86 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileFunctionBody(self: *Self, fn_decl: anytype) !void {
+        const name_obj = try self.allocator.create(ObjString);
+        name_obj.* = .{
+            .obj = .{ .obj_type = .String, .next = null },
+            .chars = fn_decl.name,
+        };
+
+        var func_obj = try self.allocator.create(FunctionObj);
+        func_obj.* = .{
+            .obj = .{ .obj_type = .Function, .next = null },
+            .arity = fn_decl.params.len,
+            .chunk = Chunk.init(self.allocator),
+            .name = name_obj,
+        };
+
+        var fn_comp = Compiler.init(self.allocator, &func_obj.chunk);
+
+        fn_comp.locals[0] = .{ .name = "", .depth = 0, .is_mut = false };
+        fn_comp.local_count = 1;
+        fn_comp.scope_depth = 1;
+
+        for (fn_decl.params) |param| {
+            fn_comp.locals[fn_comp.local_count] = .{
+                .name = param,
+                .depth = 1,
+                .is_mut = true,
+            };
+            fn_comp.local_count += 1;
+        }
+
+        try fn_comp.compile(fn_decl.body.*);
+        const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
+        try fn_comp.emitOp(.OP_CONSTANT);
+        try fn_comp.emitByte(zero_idx);
+        try fn_comp.emitOp(.OP_RETURN);
+
+        const func_idx = try self.current_chunk.addConstant(.{ .Object = &func_obj.obj });
+        try self.emitOp(.OP_CONSTANT);
+        try self.emitByte(func_idx);
+    }
+
     pub fn compile(self: *Compiler, node: ast.Node) anyerror!void {
         switch (node) {
             .Number => |n| {
                 try self.emitConstant(.{ .Number = n });
+            },
+            .Table => |table_node| {
+                var array_count: usize = 0;
+                var dict_count: usize = table_node.fields.len;
+
+                for (table_node.elements) |elem| {
+                    if (elem == .FnDeclaration) {
+                        const key_idx = try self.emitStringConstant(elem.FnDeclaration.name);
+                        try self.emitOp(.OP_CONSTANT);
+                        try self.emitByte(key_idx);
+
+                        try self.compileFunctionBody(elem.FnDeclaration);
+                        dict_count += 1;
+                    } else {
+                        try self.compile(elem);
+                        array_count += 1;
+                    }
+                }
+
+                for (table_node.fields) |field| {
+                    const key_idx = try self.emitStringConstant(field.key);
+                    try self.emitOp(.OP_CONSTANT);
+                    try self.emitByte(key_idx);
+
+                    try self.compile(field.value);
+                }
+
+                try self.emitOp(.OP_BUILD_TABLE);
+                try self.emitByte(@intCast(array_count));
+                try self.emitByte(@intCast(dict_count));
+            },
+            .String => |s| {
+                const str_idx = try self.emitStringConstant(s);
+                try self.emitOp(.OP_CONSTANT);
+                try self.emitByte(str_idx);
             },
             .Binary => |b| {
                 try self.compile(b.left.*);
@@ -251,51 +327,12 @@ pub const Compiler = struct {
                 }
             },
             .FnDeclaration => |fn_decl| {
-                var fn_obj = try self.allocator.create(FunctionObj);
-
-                const name_obj = try self.allocator.create(ObjString);
-                name_obj.* = .{
-                    .obj = .{ .obj_type = .String, .next = null },
-                    .chars = fn_decl.name,
-                };
-
-                fn_obj.* = .{
-                    .obj = .{ .obj_type = .Function, .next = null },
-                    .arity = fn_decl.params.len,
-                    .chunk = Chunk.init(self.allocator),
-                    .name = name_obj,
-                };
-
-                var fn_comp = Compiler.init(self.allocator, &fn_obj.chunk);
-
-                fn_comp.locals[0] = .{ .name = "", .depth = 0, .is_mut = false };
-                fn_comp.local_count = 1;
-                fn_comp.scope_depth = 1;
-
-                for (fn_decl.params) |param| {
-                    fn_comp.locals[fn_comp.local_count] = .{
-                        .name = param,
-                        .depth = 1,
-                        .is_mut = true,
-                    };
-                    fn_comp.local_count += 1;
-                }
-
-                try fn_comp.compile(fn_decl.body.*);
-
-                const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
-                try fn_comp.emitOp(.OP_CONSTANT);
-                try fn_comp.emitByte(zero_idx);
-                try fn_comp.emitOp(.OP_RETURN);
-
-                const func_idx = try self.current_chunk.addConstant(.{ .Object = &fn_obj.obj });
-                try self.emitOp(.OP_CONSTANT);
-                try self.emitByte(func_idx);
+                try self.compileFunctionBody(fn_decl);
 
                 try self.known_globals.put(fn_decl.name, false);
-                const name_index = try self.emitStringConstant(fn_decl.name);
+                const name_idx = try self.emitStringConstant(fn_decl.name);
                 try self.emitOp(.OP_DEFINE_GLOBAL);
-                try self.emitByte(name_index);
+                try self.emitByte(name_idx);
             },
             .ReturnStatement => |ret| {
                 if (ret.value) |val| {
