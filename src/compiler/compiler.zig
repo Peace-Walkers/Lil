@@ -226,6 +226,28 @@ pub const Compiler = struct {
                 try self.emitByte(@intCast(array_count));
                 try self.emitByte(@intCast(dict_count));
             },
+            .VariantAccess => |v| {
+                const ns_idx = try self.emitStringConstant(v.namespace);
+                const name_idx = try self.emitStringConstant(v.variant);
+
+                try self.emitOp(.OP_BUILD_VARIANT);
+                try self.emitByte(ns_idx);
+                try self.emitByte(name_idx);
+                try self.emitByte(0);
+            },
+            .VariantCall => |v| {
+                for (v.arguments) |arg| {
+                    try self.compile(arg);
+                }
+
+                const ns_idx = try self.emitStringConstant(v.namespace);
+                const name_idx = try self.emitStringConstant(v.variant);
+
+                try self.emitOp(.OP_BUILD_VARIANT);
+                try self.emitByte(ns_idx);
+                try self.emitByte(name_idx);
+                try self.emitByte(@intCast(v.arguments.len));
+            },
             .String => |s| {
                 const str_idx = try self.emitStringConstant(s);
                 try self.emitOp(.OP_CONSTANT);

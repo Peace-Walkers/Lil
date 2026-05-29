@@ -60,6 +60,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             std.debug.print(", args: {d}]\n", .{arg_count});
             return offset + 3;
         },
+        .OP_BUILD_VARIANT => {
+            const ns_idx = chunk.code.items[offset + 1];
+            const name_idx = chunk.code.items[offset + 2];
+            const arg_count = chunk.code.items[offset + 3];
+
+            std.debug.print("{s:<16} ns:{d} name:{d} args:{d}\n", .{ "OP_BUILD_VARIANT", ns_idx, name_idx, arg_count });
+            return offset + 4;
+        },
         else => {
             std.debug.print("{s:<16}\n", .{@tagName(op)});
             return offset + 1;

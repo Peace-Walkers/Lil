@@ -7,6 +7,7 @@ const Value = value_mod.Value;
 const ObjString = value_mod.ObjString;
 const FunctionObj = value_mod.FunctionObj;
 const TableObj = value_mod.TableObj;
+const VariantObj = value_mod.VariantObj;
 const debug = @import("../compiler/debug.zig");
 
 pub const VmError = error{
@@ -384,6 +385,32 @@ pub const VM = struct {
                         std.debug.print("Runtime Error: Can only index arrays and strings.\n", .{});
                         return error.RuntimeError;
                     }
+                },
+                .OP_BUILD_VARIANT => {
+                    const ns_val = self.reasConstant();
+                    const name_val = self.reasConstant();
+                    const arg_count = self.readByte();
+
+                    const ns_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
+                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+
+                    var payload = try self.allocator.alloc(Value, arg_count);
+
+                    var i: usize = 0;
+                    while (i > 0) {
+                        i -= 1;
+                        payload[i] = self.pop();
+                    }
+
+                    const variant_obj = try self.allocator.create(VariantObj);
+                    variant_obj.* = .{
+                        .obj = .{ .obj_type = .Variant, .next = null },
+                        .namespace = ns_obj,
+                        .variant_name = name_obj,
+                        .payload = payload,
+                    };
+
+                    self.push(.{ .Object = &variant_obj.obj });
                 },
                 else => {
                     std.debug.print("Error: Invalid OpCode.\n", .{});
