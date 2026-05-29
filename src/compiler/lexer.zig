@@ -130,8 +130,9 @@ pub const Lexer = struct {
         }
 
         if (self.peek() == '"') {
+            const token = self.makeToken(.String, start + 1);
             _ = self.advance();
-            return self.makeToken(.String, start);
+            return token;
         } else {
             return self.makeToken(.Error, start);
         }

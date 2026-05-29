@@ -14,6 +14,8 @@ pub const OpCode = enum(u8) {
     OP_GET_PROPERTY,
     OP_INVOKE,
 
+    OP_GET_INDEX,
+
     OP_ADD,
     OP_SUBTRACT,
     OP_MULTIPLY,

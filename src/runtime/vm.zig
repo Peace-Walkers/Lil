@@ -341,6 +341,50 @@ pub const VM = struct {
                     };
                     self.frame_count += 1;
                 },
+                .OP_GET_INDEX => {
+                    const index_val = self.pop();
+                    const object_val = self.pop();
+
+                    if (index_val != .Number) {
+                        std.debug.print("Runtime Error: Index must be a number.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const index: usize = @intCast(index_val.Number);
+
+                    if (object_val == .Object and object_val.Object.obj_type == .Table) {
+                        const table: *TableObj = @fieldParentPtr("obj", object_val.Object);
+
+                        if (index >= table.elements.items.len) {
+                            std.debug.print("Runtime Error: Array index out of bounds.\n", .{});
+                            return error.RuntimeError;
+                        }
+                        self.push(table.elements.items[index]);
+                    } else if (object_val == .Object and object_val.Object.obj_type == .String) {
+                        const string: *ObjString = @fieldParentPtr("obj", object_val.Object);
+
+                        if (index >= string.chars.len) {
+                            std.debug.print("Runtime Error: String index out of bounds.\n", .{});
+                            return error.RuntimeError;
+                        }
+
+                        const char = string.chars[index];
+
+                        var char_slice = try self.allocator.alloc(u8, 1);
+                        char_slice[0] = char;
+
+                        var new_str = try self.allocator.create(ObjString);
+                        new_str.* = .{
+                            .obj = .{ .obj_type = .String, .next = null },
+                            .chars = char_slice,
+                        };
+
+                        self.push(.{ .Object = &new_str.obj });
+                    } else {
+                        std.debug.print("Runtime Error: Can only index arrays and strings.\n", .{});
+                        return error.RuntimeError;
+                    }
+                },
                 else => {
                     std.debug.print("Error: Invalid OpCode.\n", .{});
                     return error.RuntimeError;

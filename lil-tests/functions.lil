@@ -14,3 +14,4 @@ let table = {
 
 let name = table.username
 let cmt  = table.commit()
+let f_name = table.username[0]

@@ -45,6 +45,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_LOOP => return jumpInstruction("OP_LOOP", -1, chunk, offset),
         .OP_CALL => return byteInstruction("OP_CALL", chunk, offset),
         .OP_GET_PROPERTY => return constantInstruction("OP_GET_PROPERTY", chunk, offset),
+        .OP_GET_INDEX => return simpleInstruction("OP_GET_INDEX", offset),
         .OP_BUILD_TABLE => {
             const array_count = chunk.code.items[offset + 1];
             const dict_count = chunk.code.items[offset + 2];
