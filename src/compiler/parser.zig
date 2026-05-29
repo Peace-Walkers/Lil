@@ -242,6 +242,20 @@ pub const Parser = struct {
                         .variant = variant_name,
                     } };
                 }
+            } else if (self.match(.LBracket)) {
+                const index_node = try self.parse_expr();
+
+                try self.consume(.RBracket, "Expected ']' after index.");
+                const object_ptr = try self.arena.create(ast.Node);
+                object_ptr.* = expr;
+
+                const index_ptr = try self.arena.create(ast.Node);
+                index_ptr.* = index_node;
+
+                expr = .{ .Index = .{
+                    .object = object_ptr,
+                    .index = index_ptr,
+                } };
             } else {
                 break;
             }

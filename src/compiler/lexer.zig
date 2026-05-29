@@ -45,6 +45,8 @@ pub const TokenType = enum {
     RParen, // )
     LBrace, // {  (for Tables)
     RBrace, // }  (for Tables)
+    LBracket, // ] (for indexation)
+    RBracket,
 
     // --- 5. Formatting (LiLang's magic) ---
     Indent, // New indentation level (replaces '{')
@@ -287,6 +289,8 @@ pub const Lexer = struct {
             ')' => return self.makeToken(.RParen, start),
             '{' => return self.makeToken(.LBrace, start),
             '}' => return self.makeToken(.RBrace, start),
+            '[' => return self.makeToken(.LBracket, start),
+            ']' => return self.makeToken(.RBracket, start),
             '+' => return self.makeToken(.Plus, start),
             '-' => return self.makeToken(.Minus, start),
             '*' => return self.makeToken(.Star, start),
