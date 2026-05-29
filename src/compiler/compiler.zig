@@ -25,6 +25,7 @@ pub const Compiler = struct {
     scope_depth: usize,
 
     known_globals: std.StringHashMap(bool),
+    types_registry: std.StringHashMap([]const ast.Variant),
 
     pub fn init(allocator: std.mem.Allocator, chunk: *Chunk) Compiler {
         var comp = Compiler{
@@ -34,6 +35,7 @@ pub const Compiler = struct {
             .local_count = 0,
             .scope_depth = 0,
             .known_globals = std.StringHashMap(bool).init(allocator),
+            .types_registry = std.StringHashMap([]const ast.Variant).init(allocator),
         };
 
         comp.locals[0] = .{
@@ -48,6 +50,7 @@ pub const Compiler = struct {
 
     fn deinit(self: *Self) void {
         self.known_globals.deinit();
+        self.types_registry.deinit();
     }
 
     fn emitByte(self: *Self, byte: u8) !void {
@@ -196,6 +199,9 @@ pub const Compiler = struct {
             .Number => |n| {
                 try self.emitConstant(.{ .Number = n });
             },
+            .Boolean => |b| {
+                try self.emitConstant(.{ .Boolean = b });
+            },
             .Table => |table_node| {
                 var array_count: usize = 0;
                 var dict_count: usize = table_node.fields.len;
@@ -227,6 +233,28 @@ pub const Compiler = struct {
                 try self.emitByte(@intCast(dict_count));
             },
             .VariantAccess => |v| {
+                if (self.types_registry.get(v.namespace)) |variants| {
+                    var found = false;
+
+                    for (variants) |variant| {
+                        if (std.mem.eql(u8, variant.name, v.variant)) {
+                            if (variant.params.len != 0) {
+                                std.debug.print("Compile Error: Variant '{s}::{s}' expects {d} args but got 0.\n", .{ v.namespace, v.variant, variant.params.len });
+                                return error.CompileError;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ v.namespace, v.variant });
+                        return error.CompileError;
+                    }
+                } else {
+                    std.debug.print("Compile Error: Undefined type '{s}'.\n", .{v.namespace});
+                    return error.CompileError;
+                }
+
                 const ns_idx = try self.emitStringConstant(v.namespace);
                 const name_idx = try self.emitStringConstant(v.variant);
 
@@ -236,6 +264,27 @@ pub const Compiler = struct {
                 try self.emitByte(0);
             },
             .VariantCall => |v| {
+                if (self.types_registry.get(v.namespace)) |variants| {
+                    var found = false;
+                    for (variants) |variant| {
+                        if (std.mem.eql(u8, variant.name, v.variant)) {
+                            if (variant.params.len != v.arguments.len) {
+                                std.debug.print("Compile Error: Variant '{s}::{s}' expects {d} arguments but got {d}.\n", .{ v.namespace, v.variant, variant.params.len, v.arguments.len });
+                                return error.CompileError;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ v.namespace, v.variant });
+                        return error.CompileError;
+                    }
+                } else {
+                    std.debug.print("Compile Error: Undefined type '{s}'.\n", .{v.namespace});
+                    return error.CompileError;
+                }
+
                 for (v.arguments) |arg| {
                     try self.compile(arg);
                 }
@@ -262,6 +311,7 @@ pub const Compiler = struct {
                     .Minus => try self.emitOp(.OP_SUBTRACT),
                     .Star => try self.emitOp(.OP_MULTIPLY),
                     .Slash => try self.emitOp(.OP_DIVIDE),
+                    .EqualsEquals => try self.emitOp(.OP_EQUAL),
                     else => {
                         std.debug.print("Unsupported operator : {s}\n", .{@tagName(b.operator)});
                         return error.UnsupportedOperator;
@@ -350,6 +400,9 @@ pub const Compiler = struct {
                     std.debug.print("Error: unknown variable '{s}'\n", .{assign.name});
                     return error.CompileError;
                 }
+            },
+            .TypeDeclaration => |*t| {
+                try self.types_registry.put(t.name, t.variants);
             },
             .Root => |root| {
                 for (root.statements) |stmt| {

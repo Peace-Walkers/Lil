@@ -83,6 +83,120 @@ pub const VM = struct {
         return self.stack[self.stack_top - 1 - distance];
     }
 
+    fn valuesEquals(self: *Self, a: Value, b: Value) !bool {
+        if (@intFromEnum(a) != @intFromEnum(b)) {
+            std.debug.print("Runtime Error: Invalid comparison between incompatible types '{s}' and '{s}'\n", .{ @tagName(a), @tagName(b) });
+            std.log.info("a = {}", .{a});
+            std.log.info("b = {}", .{b});
+            return error.RuntimeError;
+        }
+
+        switch (a) {
+            .Number => |n| {
+                return n == b.Number;
+            },
+            .Boolean => |bo| {
+                return bo == b.Boolean;
+            },
+            .Null => {
+                return true;
+            },
+            .Object => |a_obj| {
+                const b_obj = b.Object;
+
+                if (a_obj.obj_type != b_obj.obj_type) {
+                    std.debug.print("Runtime Error: Invalid comparison between incompatible types '{s}' and '{s}'\n", .{ @tagName(a_obj.obj_type), @tagName(b.Object.obj_type) });
+                    return error.RuntimeError;
+                }
+
+                switch (a_obj.obj_type) {
+                    .String => {
+                        const string_a_obj: *ObjString = @fieldParentPtr("obj", a_obj);
+                        const str_a = string_a_obj.chars;
+
+                        const string_b_obj: *ObjString = @fieldParentPtr("obj", b_obj);
+                        const str_b = string_b_obj.chars;
+
+                        return std.mem.eql(u8, str_a, str_b);
+                    },
+                    .Table => {
+                        const table_a_obj: *TableObj = @fieldParentPtr("obj", a_obj);
+
+                        const table_b_obj: *TableObj = @fieldParentPtr("obj", b_obj);
+
+                        if (table_a_obj.elements.items.len != table_b_obj.elements.items.len)
+                            return false;
+
+                        for (table_a_obj.elements.items, 0..) |elem_a, i| {
+                            const elem_b = table_b_obj.elements.items[i];
+                            if (!try self.valuesEquals(elem_a, elem_b))
+                                return false;
+                        }
+
+                        if (table_a_obj.fields.count() != table_b_obj.fields.count()) return false;
+
+                        var it_a = table_a_obj.fields.iterator();
+
+                        while (it_a.next()) |a_field| {
+                            if (table_b_obj.fields.get(a_field.key_ptr.*)) |b_value| {
+                                const a_value = a_field.value_ptr.*;
+                                if (!try self.valuesEquals(a_value, b_value))
+                                    return false;
+                            } else {
+                                return false;
+                            }
+                        }
+                        return true;
+                    },
+                    .Variant => {
+                        const var_a_obj: *VariantObj = @fieldParentPtr("obj", a_obj);
+                        const var_b_obj: *VariantObj = @fieldParentPtr("obj", b_obj);
+
+                        const a_namespace = var_a_obj.namespace;
+                        const b_namespace = var_b_obj.namespace;
+
+                        const a_name = var_a_obj.variant_name;
+                        const b_name = var_b_obj.variant_name;
+
+                        const a_payload = var_a_obj.payload;
+                        const b_payload = var_b_obj.payload;
+
+                        if (a_namespace) |a_n| {
+                            if (b_namespace) |b_n| {
+                                if (!std.mem.eql(u8, a_n.chars, b_n.chars))
+                                    return false;
+                            } else {
+                                return false;
+                            }
+                        } else if (b_namespace) |_| {
+                            return false;
+                        }
+
+                        if (!std.mem.eql(u8, a_name.chars, b_name.chars))
+                            return false;
+
+                        if (a_payload.len != b_payload.len)
+                            return false;
+
+                        for (a_payload, 0..) |a_value, i| {
+                            const b_value = b_payload[i];
+                            if (!try self.valuesEquals(a_value, b_value))
+                                return false;
+                        }
+
+                        return true;
+                    },
+                    .Function => {
+                        const fn_a_obj: *FunctionObj = @fieldParentPtr("obj", a_obj);
+                        const fn_b_obj: *FunctionObj = @fieldParentPtr("obj", b_obj);
+
+                        return fn_a_obj == fn_b_obj;
+                    },
+                }
+            },
+        }
+    }
+
     fn isFalsey(value: Value) bool {
         switch (value) {
             .Number => |n| return n == 0,
@@ -91,7 +205,7 @@ pub const VM = struct {
         }
     }
 
-    fn reasConstant(self: *Self) Value {
+    fn readConstant(self: *Self) Value {
         const frame = self.currentFrame();
         return frame.function.chunk.constants.items[self.readByte()];
     }
@@ -119,11 +233,11 @@ pub const VM = struct {
 
             switch (op) {
                 .OP_CONSTANT => {
-                    const constant = self.reasConstant();
+                    const constant = self.readConstant();
                     self.push(constant);
                 },
                 .OP_DEFINE_GLOBAL => {
-                    const name_val = self.reasConstant();
+                    const name_val = self.readConstant();
                     const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
                     const name = name_obj.chars;
 
@@ -131,7 +245,7 @@ pub const VM = struct {
                     try self.globals.put(name, value);
                 },
                 .OP_SET_GLOBAL => {
-                    const name_val = self.reasConstant();
+                    const name_val = self.readConstant();
                     const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
                     const name = name_obj.chars;
 
@@ -144,7 +258,7 @@ pub const VM = struct {
                     try self.globals.put(name, value);
                 },
                 .OP_GET_GLOBAL => {
-                    const name_val = self.reasConstant();
+                    const name_val = self.readConstant();
                     const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
                     const name = name_obj.chars;
 
@@ -185,7 +299,7 @@ pub const VM = struct {
                     self.push(.{ .Object = &table_obj.obj });
                 },
                 .OP_GET_PROPERTY => {
-                    const name_val = self.reasConstant();
+                    const name_val = self.readConstant();
                     const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
                     const property_name = name_obj.chars;
 
@@ -206,7 +320,7 @@ pub const VM = struct {
                     }
                 },
                 .OP_INVOKE => {
-                    const methode_name_val = self.reasConstant();
+                    const methode_name_val = self.readConstant();
                     const methode_name_obj: *ObjString = @fieldParentPtr("obj", methode_name_val.Object);
                     const method_name = methode_name_obj.chars;
 
@@ -271,6 +385,13 @@ pub const VM = struct {
 
                     const result = a.Number - b.Number;
                     self.push(.{ .Number = result });
+                },
+                .OP_EQUAL => {
+                    std.log.info("stack top: {d}", .{self.stack_top});
+                    const a = self.pop();
+                    const b = self.pop();
+
+                    self.push(.{ .Boolean = try self.valuesEquals(a, b) });
                 },
                 .OP_RETURN => {
                     const result = self.pop();
@@ -387,8 +508,8 @@ pub const VM = struct {
                     }
                 },
                 .OP_BUILD_VARIANT => {
-                    const ns_val = self.reasConstant();
-                    const name_val = self.reasConstant();
+                    const ns_val = self.readConstant();
+                    const name_val = self.readConstant();
                     const arg_count = self.readByte();
 
                     const ns_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
@@ -396,7 +517,7 @@ pub const VM = struct {
 
                     var payload = try self.allocator.alloc(Value, arg_count);
 
-                    var i: usize = 0;
+                    var i: usize = arg_count;
                     while (i > 0) {
                         i -= 1;
                         payload[i] = self.pop();

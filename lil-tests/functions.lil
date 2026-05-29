@@ -11,7 +11,16 @@ let table = {
     return self.stats.commit
 }
 
-
 let name = table.username
 let cmt  = table.commit()
 let f_name = table.username[0]
+
+type Option = 
+  | Some(val)
+  | None
+
+let opt = Option::Some(table)
+mut some = false
+
+if opt == Option::Some(table):
+  some = true
