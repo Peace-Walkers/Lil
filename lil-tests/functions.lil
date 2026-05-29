@@ -10,3 +10,7 @@ let table = {
   fn commit(self):
     return self.stats.commit
 }
+
+
+let name = table.username
+let cmt  = table.commit()

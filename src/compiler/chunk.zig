@@ -11,6 +11,9 @@ pub const OpCode = enum(u8) {
     OP_GET_LOCAL,
     OP_SET_LOCAL,
 
+    OP_GET_PROPERTY,
+    OP_INVOKE,
+
     OP_ADD,
     OP_SUBTRACT,
     OP_MULTIPLY,

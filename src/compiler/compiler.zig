@@ -246,6 +246,14 @@ pub const Compiler = struct {
                     },
                 }
             },
+            .Get => |g| {
+                try self.compile(g.object.*);
+
+                const name_idx = try self.emitStringConstant(g.name);
+
+                try self.emitOp(.OP_GET_PROPERTY);
+                try self.emitByte(name_idx);
+            },
             .LetDeclaration => |decl| {
                 try self.compileVariable(decl.name, decl.initializer.*, false);
             },
@@ -344,6 +352,18 @@ pub const Compiler = struct {
                     try self.emitByte(zero_idx);
                 }
                 try self.emitOp(.OP_RETURN);
+            },
+            .MethodCall => |call| {
+                try self.compile(call.object.*);
+
+                for (call.arguments) |arg| {
+                    try self.compile(arg);
+                }
+
+                const name_idx = try self.emitStringConstant(call.method);
+                try self.emitOp(.OP_INVOKE);
+                try self.emitByte(name_idx);
+                try self.emitByte(@intCast(call.arguments.len));
             },
             .Call => |call| {
                 try self.compile(call.callee.*);

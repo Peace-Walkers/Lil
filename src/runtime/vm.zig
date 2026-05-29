@@ -183,6 +183,80 @@ pub const VM = struct {
 
                     self.push(.{ .Object = &table_obj.obj });
                 },
+                .OP_GET_PROPERTY => {
+                    const name_val = self.reasConstant();
+                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const property_name = name_obj.chars;
+
+                    const instance_val = self.pop();
+
+                    if (instance_val != .Object or instance_val.Object.obj_type != .Table) {
+                        std.debug.print("Runtime Error: Only tables have properties.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const table: *TableObj = @fieldParentPtr("obj", instance_val.Object);
+
+                    if (table.fields.get(property_name)) |value| {
+                        self.push(value);
+                    } else {
+                        std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{property_name});
+                        return error.RuntimeError;
+                    }
+                },
+                .OP_INVOKE => {
+                    const methode_name_val = self.reasConstant();
+                    const methode_name_obj: *ObjString = @fieldParentPtr("obj", methode_name_val.Object);
+                    const method_name = methode_name_obj.chars;
+
+                    const arg_count = self.readByte();
+
+                    const receiver = self.peek(arg_count);
+
+                    if (receiver != .Object or receiver.Object.obj_type != .Table) {
+                        std.debug.print("Runtime Error: Only tables have methods.\n", .{});
+                        return error.Runtime;
+                    }
+
+                    const table: *TableObj = @fieldParentPtr("obj", receiver.Object);
+
+                    if (table.fields.get(method_name)) |methode_val| {
+                        if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
+                            std.debug.print("Runtime Error: Property '{s}' is not a function\n", .{method_name});
+                            return error.RuntimeError;
+                        }
+
+                        const func: *FunctionObj = @fieldParentPtr("obj", methode_val.Object);
+
+                        if (arg_count + 1 != func.arity) {
+                            std.debug.print("Runtime Error: Expected {d} args but got {d}", .{ func.arity, arg_count + 1 });
+                            return error.RuntimeError;
+                        }
+
+                        if (self.frame_count == 64) {
+                            std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                            return error.RuntimeError;
+                        }
+
+                        var i: usize = 0;
+                        while (i <= arg_count) : (i += 1) {
+                            self.stack[self.stack_top - i] = self.stack[self.stack_top - i - 1];
+                        }
+
+                        self.stack[self.stack_top - arg_count - 1] = .{ .Object = &func.obj };
+                        self.stack_top += 1;
+
+                        self.frames[self.frame_count] = .{
+                            .function = func,
+                            .ip = 0,
+                            .slot_offset = self.stack_top - 2,
+                        };
+                        self.frame_count += 1;
+                    } else {
+                        std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{method_name});
+                        return error.RuntimeError;
+                    }
+                },
                 .OP_ADD => {
                     const b = self.pop();
                     const a = self.pop();

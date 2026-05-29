@@ -44,10 +44,19 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SET_GLOBAL => return constantInstruction("OP_SET_GLOBAL", chunk, offset),
         .OP_LOOP => return jumpInstruction("OP_LOOP", -1, chunk, offset),
         .OP_CALL => return byteInstruction("OP_CALL", chunk, offset),
+        .OP_GET_PROPERTY => return constantInstruction("OP_GET_PROPERTY", chunk, offset),
         .OP_BUILD_TABLE => {
             const array_count = chunk.code.items[offset + 1];
             const dict_count = chunk.code.items[offset + 2];
             std.debug.print("{s:<16} array:{d:<3} dict:{d}\n", .{ "OP_BUILD_TABLE", array_count, dict_count });
+            return offset + 3;
+        },
+        .OP_INVOKE => {
+            const name_idx = chunk.code.items[offset + 1];
+            const arg_count = chunk.code.items[offset + 2];
+            std.debug.print("{s:<16} {d:<9} [name: ", .{ "OP_INVOKE", name_idx });
+            chunk.constants.items[name_idx].print();
+            std.debug.print(", args: {d}]\n", .{arg_count});
             return offset + 3;
         },
         else => {
