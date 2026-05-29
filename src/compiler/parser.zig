@@ -35,6 +35,8 @@ pub const Parser = struct {
             self.current = self.scanner.next();
             if (self.current.tag != .Error) break;
 
+            std.debug.print("Paring Error: invalid token :'{s}'\n", .{self.current.lexeme});
+
             self.had_error = true;
         }
     }
@@ -43,6 +45,10 @@ pub const Parser = struct {
         if (self.current.tag != tag) return false;
         self.advance();
         return true;
+    }
+
+    fn check(self: *Self, tag: lexer.TokenType) bool {
+        return self.current.tag == tag;
     }
 
     fn consume(self: *Self, tag: lexer.TokenType, message: []const u8) !void {
@@ -408,6 +414,8 @@ pub const Parser = struct {
         if (self.current.tag != .RBrace) {
             while (true) {
                 while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
+
+                if (self.check(.RBrace)) break;
 
                 const expr = try self.parse_expr();
 

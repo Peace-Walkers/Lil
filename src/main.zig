@@ -35,6 +35,8 @@ pub fn main(init: std.process.Init) !void {
                 try stdout_writer.print("\nBye!\n", .{});
                 break;
             }
+            std.debug.print("line: {s}\n", .{&stdin_buffer});
+            try lil.interpret(arena, stdin_buffer[0..line_or_eof]);
         }
     } else if (args.len == 2) {
         const file_path = args[1];
