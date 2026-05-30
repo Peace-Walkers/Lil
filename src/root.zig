@@ -45,4 +45,5 @@ pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
 
 test {
     _ = @import("compiler/lexer.zig");
+    _ = @import("compiler/parser.zig");
 }

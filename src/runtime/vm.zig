@@ -86,8 +86,6 @@ pub const VM = struct {
     fn valuesEquals(self: *Self, a: Value, b: Value) !bool {
         if (@intFromEnum(a) != @intFromEnum(b)) {
             std.debug.print("Runtime Error: Invalid comparison between incompatible types '{s}' and '{s}'\n", .{ @tagName(a), @tagName(b) });
-            std.log.info("a = {}", .{a});
-            std.log.info("b = {}", .{b});
             return error.RuntimeError;
         }
 
@@ -387,7 +385,6 @@ pub const VM = struct {
                     self.push(.{ .Number = result });
                 },
                 .OP_EQUAL => {
-                    std.log.info("stack top: {d}", .{self.stack_top});
                     const a = self.pop();
                     const b = self.pop();
 
@@ -505,6 +502,69 @@ pub const VM = struct {
                     } else {
                         std.debug.print("Runtime Error: Can only index arrays and strings.\n", .{});
                         return error.RuntimeError;
+                    }
+                },
+                .OP_MATCH_TEST => {
+                    const has_ns = self.readByte();
+                    const ns_idx = self.readByte();
+                    const name_idx = self.readByte();
+                    const expected_bindings = self.readByte();
+
+                    const target = self.peek(0);
+
+                    const name_val = frame.function.chunk.constants.items[name_idx];
+                    const name_str_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_str = name_str_obj.chars;
+
+                    if (std.mem.eql(u8, name_str, "_")) {
+                        self.push(.{ .Boolean = true });
+                        continue;
+                    }
+
+                    if (target != .Object or target.Object.obj_type != .Variant) {
+                        self.push(.{ .Boolean = false });
+                        continue;
+                    }
+
+                    const variant_obj: *VariantObj = @fieldParentPtr("obj", target.Object);
+                    if (!std.mem.eql(u8, variant_obj.variant_name.chars, name_str)) {
+                        self.push(.{ .Boolean = false });
+                        continue;
+                    }
+
+                    if (has_ns == 1) {
+                        const ns_val = frame.function.chunk.constants.items[ns_idx];
+                        const ns_str_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
+                        const ns_str = ns_str_obj.chars;
+
+                        if (variant_obj.namespace) |v_ns| {
+                            if (!std.mem.eql(u8, v_ns.chars, ns_str)) {
+                                self.push(.{ .Boolean = false });
+                                continue;
+                            }
+                        } else {
+                            self.push(.{ .Boolean = false });
+                            continue;
+                        }
+                    }
+
+                    if (variant_obj.payload.len != expected_bindings) {
+                        self.push(.{ .Boolean = false });
+                        continue;
+                    }
+
+                    self.push(.{ .Boolean = true });
+                },
+                .OP_MATCH_BIND => {
+                    const binding_count = self.readByte();
+
+                    if (binding_count > 0) {
+                        const target = self.peek(0);
+                        const variant_obj: *VariantObj = @fieldParentPtr("obj", target.Object);
+
+                        for (variant_obj.payload) |val| {
+                            self.push(val);
+                        }
                     }
                 },
                 .OP_BUILD_VARIANT => {

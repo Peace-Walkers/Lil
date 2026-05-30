@@ -366,6 +366,58 @@ pub const Compiler = struct {
 
                 self.patchJump(else_jump);
             },
+            .MatchExpression => |m| {
+                try self.compile(m.target.*);
+
+                self.beginScope();
+                self.locals[self.local_count] = .{ .name = "", .depth = self.scope_depth, .is_mut = false };
+                self.local_count += 1;
+
+                var end_jumps: std.ArrayList(usize) = .empty;
+
+                for (m.branches) |branch| {
+                    const ns_idx = if (branch.pattern.namespace) |ns| try self.emitStringConstant(ns) else 0;
+                    const name_idx = try self.emitStringConstant(branch.pattern.name);
+                    const has_ns: u8 = if (branch.pattern.namespace != null) 1 else 0;
+
+                    try self.emitOp(.OP_MATCH_TEST);
+                    try self.emitByte(has_ns);
+                    try self.emitByte(ns_idx);
+                    try self.emitByte(name_idx);
+                    try self.emitByte(@intCast(branch.pattern.bindings.len));
+
+                    const next_branch_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+                    try self.emitOp(.OP_POP);
+
+                    try self.emitOp(.OP_MATCH_BIND);
+                    try self.emitByte(@intCast(branch.pattern.bindings.len));
+
+                    self.beginScope();
+                    for (branch.pattern.bindings) |binding_name| {
+                        self.locals[self.local_count] = .{
+                            .name = binding_name,
+                            .depth = self.scope_depth,
+                            .is_mut = false,
+                        };
+                        self.local_count += 1;
+                    }
+
+                    try self.compile(branch.body);
+
+                    try self.endScope();
+
+                    try end_jumps.append(self.allocator, try self.emitJump(.OP_JUMP));
+
+                    self.patchJump(next_branch_jump);
+                    try self.emitOp(.OP_POP);
+                }
+
+                try self.endScope();
+
+                for (end_jumps.items) |jump| {
+                    self.patchJump(jump);
+                }
+            },
             .WhileStatement => |while_stmt| {
                 const loop_start = self.current_chunk.code.items.len;
                 try self.compile(while_stmt.condition.*);
@@ -387,6 +439,7 @@ pub const Compiler = struct {
                     try self.compile(assign.value.*);
                     try self.emitOp(.OP_SET_LOCAL);
                     try self.emitByte(local_index);
+                    try self.emitOp(.OP_POP);
                 } else if (self.known_globals.get(assign.name)) |is_mut| {
                     if (!is_mut) {
                         std.debug.print("Error: you cannot mutate a constant variable: '{s}'.\n", .{assign.name});
@@ -396,6 +449,7 @@ pub const Compiler = struct {
                     const name_index = try self.emitStringConstant(assign.name);
                     try self.emitOp(.OP_SET_GLOBAL);
                     try self.emitByte(name_index);
+                    try self.emitOp(.OP_POP);
                 } else {
                     std.debug.print("Error: unknown variable '{s}'\n", .{assign.name});
                     return error.CompileError;

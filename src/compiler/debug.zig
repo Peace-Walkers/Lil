@@ -68,6 +68,23 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             std.debug.print("{s:<16} ns:{d} name:{d} args:{d}\n", .{ "OP_BUILD_VARIANT", ns_idx, name_idx, arg_count });
             return offset + 4;
         },
+        .OP_MATCH_TEST => {
+            std.debug.print("{s:<16} ", .{@tagName(op)});
+            // L'opcode fait 1 byte + 4 opérandes = 5 bytes au total
+            const has_ns = chunk.code.items[offset + 1];
+            const ns_idx = chunk.code.items[offset + 2];
+            const name_idx = chunk.code.items[offset + 3];
+            const bind_count = chunk.code.items[offset + 4];
+
+            std.debug.print("ns:{d} ns_idx:{d} name_idx:{d} binds:{d}\n", .{ has_ns, ns_idx, name_idx, bind_count });
+            return offset + 5;
+        },
+        .OP_MATCH_BIND => {
+            std.debug.print("{s:<16} ", .{@tagName(op)});
+            const bind_count = chunk.code.items[offset + 1];
+            std.debug.print("binds:{d}\n", .{bind_count});
+            return offset + 2;
+        },
         else => {
             std.debug.print("{s:<16}\n", .{@tagName(op)});
             return offset + 1;

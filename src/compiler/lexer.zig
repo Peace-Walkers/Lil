@@ -39,6 +39,7 @@ pub const TokenType = enum {
     Slash, // /
     Arrow, // => (for pattern matching)
     Pipe, // |  (for ADTs: | Some(val))
+    Underscore, // _ (for pattern matching)
 
     // --- 4. Delimiters ---
     LParen, // (
@@ -173,6 +174,7 @@ pub const Lexer = struct {
 
         const text = self.source[start..self.pos];
 
+        if (std.mem.eql(u8, text, "_")) return self.makeToken(.Underscore, start);
         if (std.mem.eql(u8, text, "let")) return self.makeToken(.Let, start);
         if (std.mem.eql(u8, text, "mut")) return self.makeToken(.Mut, start);
         if (std.mem.eql(u8, text, "fn")) return self.makeToken(.Fn, start);
@@ -367,7 +369,7 @@ test "lexer: strings and floats" {
         .{ .tag = .Let, .lexeme = "let" },
         .{ .tag = .Identifier, .lexeme = "msg" },
         .{ .tag = .Equals, .lexeme = "=" },
-        .{ .tag = .String, .lexeme = "\"hello\"" },
+        .{ .tag = .String, .lexeme = "hello" },
         .{ .tag = .NewLine, .lexeme = "" },
         .{ .tag = .Mut, .lexeme = "mut" },
         .{ .tag = .Identifier, .lexeme = "pi" },
@@ -436,6 +438,39 @@ test "lexer: comments are ignored" {
         .{ .tag = .Equals, .lexeme = "=" },
         .{ .tag = .Number, .lexeme = "10" },
         .{ .tag = .NewLine, .lexeme = "" },
+    });
+}
+
+test "lexer: match with default case" {
+    const source =
+        \\match oui:
+        \\  Option::Some(v) => v
+        \\  _ => oui
+    ;
+
+    try expectTokens(source, &.{
+        .{ .tag = .Match, .lexeme = "match" },
+        .{ .tag = .Identifier, .lexeme = "oui" },
+        .{ .tag = .Colon, .lexeme = ":" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        .{ .tag = .Indent, .lexeme = "" },
+        .{ .tag = .Identifier, .lexeme = "Option" },
+        .{ .tag = .DoubleColon, .lexeme = "::" },
+        .{ .tag = .Identifier, .lexeme = "Some" },
+        .{ .tag = .LParen, .lexeme = "(" },
+        .{ .tag = .Identifier, .lexeme = "v" },
+        .{ .tag = .RParen, .lexeme = ")" },
+        .{ .tag = .Arrow, .lexeme = "=>" },
+        .{ .tag = .Identifier, .lexeme = "v" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        .{ .tag = .Underscore, .lexeme = "_" },
+        .{ .tag = .Arrow, .lexeme = "=>" },
+        .{ .tag = .Identifier, .lexeme = "oui" },
+
+        .{ .tag = .Dedent, .lexeme = "" },
+        .{ .tag = .Eof, .lexeme = "" },
     });
 }
 

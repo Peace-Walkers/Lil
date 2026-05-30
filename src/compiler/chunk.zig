@@ -31,6 +31,8 @@ pub const OpCode = enum(u8) {
     OP_JUMP,
     OP_JUMP_IF_FALSE,
     OP_LOOP,
+    OP_MATCH_TEST,
+    OP_MATCH_BIND,
 
     OP_BUILD_TABLE,
     OP_BUILD_VARIANT,

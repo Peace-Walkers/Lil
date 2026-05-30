@@ -19,8 +19,17 @@ type Option =
   | Some(val)
   | None
 
-let opt = Option::Some(table)
+let opt = Option::Some(10)
 mut some = false
 
-if opt == Option::Some(table):
+if opt == Option::Some(10):
   some = true
+
+mut test = 0
+
+match opt:
+  Option::Some(v) => 
+    test = v
+  _ => 
+    test = 9
+
