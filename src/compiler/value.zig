@@ -29,6 +29,7 @@ pub const ObjType = enum {
     Table,
     Function,
     Variant,
+    Native,
 };
 
 pub const Obj = struct {
@@ -44,6 +45,10 @@ pub const Obj = struct {
             .Table => std.debug.print("<Table>", .{}),
             .Function => std.debug.print("<Fn>", .{}),
             .Variant => std.debug.print("<Variant>", .{}),
+            .Native => {
+                const native_obj: *ObjNative = @fieldParentPtr("obj", self);
+                std.debug.print("<NativeFn {s}>", .{native_obj.name});
+            },
         }
     }
 };
@@ -71,4 +76,12 @@ pub const VariantObj = struct {
     namespace: ?*ObjString,
     variant_name: *ObjString,
     payload: []Value,
+};
+
+pub const NativeFn = *const fn (arg_count: u8, args: [*]Value) Value;
+
+pub const ObjNative = struct {
+    obj: Obj,
+    function: NativeFn,
+    name: []const u8,
 };

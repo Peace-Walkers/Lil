@@ -474,6 +474,21 @@ test "lexer: match with default case" {
     });
 }
 
+test "lexer: variant call at EOF without newline" {
+    const source = "io::print(test)";
+
+    try expectTokens(source, &.{
+        .{ .tag = .Identifier, .lexeme = "io" },
+        .{ .tag = .DoubleColon, .lexeme = "::" },
+        .{ .tag = .Identifier, .lexeme = "print" },
+        .{ .tag = .LParen, .lexeme = "(" },
+        .{ .tag = .Identifier, .lexeme = "test" },
+        .{ .tag = .RParen, .lexeme = ")" },
+
+        .{ .tag = .Eof, .lexeme = "" },
+    });
+}
+
 test "lexer: multi-character operators" {
     const source = ">= <= == != =>";
     try expectTokens(source, &.{

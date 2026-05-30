@@ -8,6 +8,7 @@ const ObjString = value_mod.ObjString;
 const FunctionObj = value_mod.FunctionObj;
 const TableObj = value_mod.TableObj;
 const VariantObj = value_mod.VariantObj;
+const ObjNative = value_mod.ObjNative;
 const debug = @import("../compiler/debug.zig");
 
 pub const VmError = error{
@@ -189,6 +190,12 @@ pub const VM = struct {
                         const fn_b_obj: *FunctionObj = @fieldParentPtr("obj", b_obj);
 
                         return fn_a_obj == fn_b_obj;
+                    },
+                    .Native => {
+                        const native_obj_a: *ObjNative = @fieldParentPtr("obj", a_obj);
+                        const native_obj_b: *ObjNative = @fieldParentPtr("obj", b_obj);
+
+                        return native_obj_a.function == native_obj_b.function;
                     },
                 }
             },
@@ -437,28 +444,45 @@ pub const VM = struct {
                     const arg_count = self.readByte();
                     const callee = self.peek(arg_count);
 
-                    if (callee != .Object or callee.Object.obj_type != .Function) {
-                        std.debug.print("Runtime Error: Can only call function.\n", .{});
-                        return error.RuntimeError;
-                    }
-                    const func: *FunctionObj = @fieldParentPtr("obj", callee.Object);
-
-                    if (arg_count != func.arity) {
-                        std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
+                    if (callee != .Object) {
+                        std.debug.print("Runtime Error: Can only call functions or native methods.\n", .{});
                         return error.RuntimeError;
                     }
 
-                    if (self.frame_count == 64) {
-                        std.debug.print("Runtime Error: Stack Overflow\n", .{});
-                        return error.RuntimeError;
-                    }
+                    switch (callee.Object.obj_type) {
+                        .Function => {
+                            const func: *FunctionObj = @fieldParentPtr("obj", callee.Object);
 
-                    self.frames[self.frame_count] = .{
-                        .function = func,
-                        .ip = 0,
-                        .slot_offset = self.stack_top - arg_count - 1,
-                    };
-                    self.frame_count += 1;
+                            if (arg_count != func.arity) {
+                                std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
+                                return error.RuntimeError;
+                            }
+
+                            if (self.frame_count == 64) {
+                                std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                                return error.RuntimeError;
+                            }
+
+                            self.frames[self.frame_count] = .{
+                                .function = func,
+                                .ip = 0,
+                                .slot_offset = self.stack_top - arg_count - 1,
+                            };
+                            self.frame_count += 1;
+                        },
+                        .Native => {
+                            const native_obj: *ObjNative = @fieldParentPtr("obj", callee.Object);
+                            const args_slice = self.stack[self.stack_top - arg_count .. self.stack_top];
+                            const result = native_obj.function(arg_count, args_slice.ptr);
+
+                            self.stack_top -= (arg_count + 1);
+                            self.push(result);
+                        },
+                        else => {
+                            std.debug.print("Runtime Error: Object is not callable.\n", .{});
+                            return error.RuntimeError;
+                        },
+                    }
                 },
                 .OP_GET_INDEX => {
                     const index_val = self.pop();

@@ -1,5 +1,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const stdlib = @import("../stdlib/stdlib.zig");
+
 const chunk_mod = @import("chunk.zig");
 const Opcode = chunk_mod.OpCode;
 const Chunk = chunk_mod.Chunk;
@@ -280,22 +282,45 @@ pub const Compiler = struct {
                         std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ v.namespace, v.variant });
                         return error.CompileError;
                     }
+
+                    for (v.arguments) |arg| {
+                        try self.compile(arg);
+                    }
+
+                    const ns_idx = try self.emitStringConstant(v.namespace);
+                    const name_idx = try self.emitStringConstant(v.variant);
+
+                    try self.emitOp(.OP_BUILD_VARIANT);
+                    try self.emitByte(ns_idx);
+                    try self.emitByte(name_idx);
+                    try self.emitByte(@intCast(v.arguments.len));
+                } else if (std.mem.eql(u8, v.namespace, "io")) {
+                    if (std.mem.eql(u8, v.variant, "print")) {
+                        const native_obj = try self.allocator.create(value_mod.ObjNative);
+                        native_obj.* = .{
+                            .obj = .{ .obj_type = .Native, .next = null },
+                            .function = stdlib.io.print,
+                            .name = "print",
+                        };
+
+                        const const_idx = try self.current_chunk.addConstant(.{ .Object = &native_obj.obj });
+                        try self.emitOp(.OP_CONSTANT);
+                        try self.emitByte(const_idx);
+
+                        for (v.arguments) |arg| {
+                            try self.compile(arg);
+                        }
+
+                        try self.emitOp(.OP_CALL);
+                        try self.emitByte(@intCast(v.arguments.len));
+                    } else {
+                        std.debug.print("Compile Error: Unknown function '{s}' in module 'io'.\n", .{v.variant});
+                        return error.CompileError;
+                    }
                 } else {
-                    std.debug.print("Compile Error: Undefined type '{s}'.\n", .{v.namespace});
+                    std.debug.print("Compile Error: Undefined type or module '{s}'.\n", .{v.namespace});
                     return error.CompileError;
                 }
-
-                for (v.arguments) |arg| {
-                    try self.compile(arg);
-                }
-
-                const ns_idx = try self.emitStringConstant(v.namespace);
-                const name_idx = try self.emitStringConstant(v.variant);
-
-                try self.emitOp(.OP_BUILD_VARIANT);
-                try self.emitByte(ns_idx);
-                try self.emitByte(name_idx);
-                try self.emitByte(@intCast(v.arguments.len));
             },
             .String => |s| {
                 const str_idx = try self.emitStringConstant(s);

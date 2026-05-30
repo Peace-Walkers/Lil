@@ -537,8 +537,10 @@ pub const Parser = struct {
             return .{ .Assignment = .{ .name = name, .value = heap_node } };
         }
 
-        if (self.current.tag != .Eof) {
+        if (self.current.tag != .Eof and self.current.tag != .Dedent and self.previous.tag != .Dedent) {
             try self.consume(.NewLine, "Expected newline after expression.");
+        } else if (self.current.tag == .NewLine) {
+            _ = self.advance();
         }
 
         return expr;
@@ -949,4 +951,25 @@ test "parser: method calls and lambdas" {
     const lambda = args[0].Lambda;
     try testing.expectEqualStrings("u", lambda.params[0]);
     try testing.expectEqual(.Get, std.meta.activeTag(lambda.body.*));
+}
+
+test "parser: variant call at EOF" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const source = "io::print(test)";
+
+    const root = try setupParserTest(arena.allocator(), source);
+
+    const call_node = root.Root.statements[0];
+
+    try std.testing.expectEqual(.VariantCall, std.meta.activeTag(call_node));
+    try std.testing.expectEqualStrings("io", call_node.VariantCall.namespace);
+    try std.testing.expectEqualStrings("print", call_node.VariantCall.variant);
+
+    const args = call_node.VariantCall.arguments;
+    try std.testing.expectEqual(@as(usize, 1), args.len);
+
+    try std.testing.expectEqual(.Identifier, std.meta.activeTag(args[0]));
+    try std.testing.expectEqualStrings("test", args[0].Identifier);
 }
