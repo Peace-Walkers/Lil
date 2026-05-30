@@ -1,0 +1,35 @@
+fn add(x, y):
+  return x + y
+
+let result = add(10, 5)
+
+let table = {
+  username: "oui",
+  stats: {commit: 500},
+
+  fn commit(self):
+    return self.stats.commit
+}
+
+let name = table.username
+let cmt  = table.commit()
+let f_name = table.username[0]
+
+type Option = 
+  | Some(val)
+  | None
+
+let opt = Option::Some(10)
+mut some = false
+
+if opt == Option::Some(10):
+  some = true
+
+mut test = 0
+
+match opt:
+  Option::Some(v) => 
+    test = v
+  _ => 
+    test = 9
+

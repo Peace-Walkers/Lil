@@ -1,66 +1,49 @@
 const std = @import("std");
 const lexer = @import("compiler/lexer.zig");
 const parser = @import("compiler/parser.zig");
+const chunk_mod = @import("compiler/chunk.zig");
+const value_mod = @import("compiler/value.zig");
+const compiler = @import("compiler/compiler.zig");
+const debug = @import("compiler/debug.zig");
+const VM = @import("runtime/vm.zig").VM;
 
-pub const VM = struct {
-    allocator: std.mem.Allocator,
+pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
+    var scanner = lexer.Lexer.init(source);
 
-    pub fn init(allocator: std.mem.Allocator) VM {
-        return .{ .allocator = allocator };
+    var p = parser.Parser.init(&scanner, allocator);
+    const ast_root = try p.parse();
+
+    if (p.had_error) {
+        return error.CompileError;
     }
 
-    pub fn deinit(self: *VM) void {
-        _ = self;
-    }
+    var chunk = chunk_mod.Chunk.init(allocator);
+    defer chunk.deinit();
 
-    pub fn interpret(self: *VM, source: []const u8) !void {
-        var scanner = lexer.Lexer.init(source);
-        const is_testing = @import("builtin").is_test;
-        if (!is_testing)
-            std.debug.print("====TOKENS====\n", .{});
+    var comp = compiler.Compiler.init(allocator, &chunk);
+    try comp.compile(ast_root);
 
-        while (true) {
-            const token = scanner.next();
+    try chunk.write(@intFromEnum(chunk_mod.OpCode.OP_RETURN), 0);
 
-            if (!is_testing)
-                std.debug.print("[{s:<15}] '{s}' (line {d})\n", .{ @tagName(token.tag), token.lexeme, token.line });
+    try debug.disassembleChunk(&chunk, "Bytecode");
 
-            if (token.tag == .Eof or token.tag == .Error) {
-                break;
-            }
-        }
+    const script_function = try allocator.create(value_mod.FunctionObj);
+    defer allocator.destroy(script_function);
 
-        if (!is_testing)
-            std.debug.print("=================\n", .{});
+    script_function.* = .{
+        .obj = .{ .obj_type = .Function, .next = null },
+        .arity = 0,
+        .chunk = chunk,
+        .name = null,
+    };
 
-        var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
-        var new_scanner = lexer.Lexer.init(source);
-        var prsr = parser.Parser.init(&new_scanner, arena);
-
-        if (!is_testing) {
-            std.debug.print("=====AST=====\n", .{});
-
-            const tree = prsr.parse() catch |err| {
-                std.debug.print("Parser failed with error: {}\n", .{err});
-                return;
-            };
-
-            tree.dump(0, true, 0);
-            std.debug.print("=================\n", .{});
-        }
-
-        // std.debug.print("Lil interpret : {s}\n", .{source});
-    }
-};
-
-test "init VM" {
-    var vm = VM.init(std.testing.allocator);
+    var vm = VM.init(allocator);
     defer vm.deinit();
-    try vm.interpret("let x = 5");
+
+    try vm.interpret(script_function);
 }
 
 test {
     _ = @import("compiler/lexer.zig");
+    _ = @import("compiler/parser.zig");
 }

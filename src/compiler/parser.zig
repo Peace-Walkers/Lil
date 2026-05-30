@@ -35,6 +35,8 @@ pub const Parser = struct {
             self.current = self.scanner.next();
             if (self.current.tag != .Error) break;
 
+            std.debug.print("Paring Error: invalid token :'{s}'\n", .{self.current.lexeme});
+
             self.had_error = true;
         }
     }
@@ -43,6 +45,10 @@ pub const Parser = struct {
         if (self.current.tag != tag) return false;
         self.advance();
         return true;
+    }
+
+    fn check(self: *Self, tag: lexer.TokenType) bool {
+        return self.current.tag == tag;
     }
 
     fn consume(self: *Self, tag: lexer.TokenType, message: []const u8) !void {
@@ -242,6 +248,20 @@ pub const Parser = struct {
                         .variant = variant_name,
                     } };
                 }
+            } else if (self.match(.LBracket)) {
+                const index_node = try self.parse_expr();
+
+                try self.consume(.RBracket, "Expected ']' after index.");
+                const object_ptr = try self.arena.create(ast.Node);
+                object_ptr.* = expr;
+
+                const index_ptr = try self.arena.create(ast.Node);
+                index_ptr.* = index_node;
+
+                expr = .{ .Index = .{
+                    .object = object_ptr,
+                    .index = index_ptr,
+                } };
             } else {
                 break;
             }
@@ -287,27 +307,31 @@ pub const Parser = struct {
         while (self.current.tag != .Dedent and self.current.tag != .Eof) {
             if (self.match(.NewLine)) continue;
 
-            try self.consume(.Identifier, "Expected pattern identifiers in match branch.");
             var pattern_namespace: ?[]const u8 = null;
-            var pattern_name = self.previous.lexeme;
-
-            if (self.match(.DoubleColon)) {
-                pattern_namespace = pattern_name;
-                try self.consume(.Identifier, "Expected variant name after '::'.");
-                pattern_name = self.previous.lexeme;
-            }
-
+            var pattern_name: []const u8 = undefined;
             var bindings: std.ArrayList([]const u8) = .empty;
 
-            if (self.match(.LParen)) {
-                if (self.current.tag != .RParen) {
-                    while (true) {
-                        try self.consume(.Identifier, "Expected bindings identifiers in pattern.");
-                        try bindings.append(self.arena, self.previous.lexeme);
-                        if (!self.match(.Comma)) break;
-                    }
+            if (self.match(.Underscore)) {
+                pattern_name = "_";
+            } else {
+                try self.consume(.Identifier, "Expected pattern identifiers in match branch.");
+                pattern_name = self.previous.lexeme;
+                if (self.match(.DoubleColon)) {
+                    pattern_namespace = pattern_name;
+                    try self.consume(.Identifier, "Expected variant name after '::'.");
+                    pattern_name = self.previous.lexeme;
                 }
-                try self.consume(.RParen, "Expected ')' after pattern bindings.");
+
+                if (self.match(.LParen)) {
+                    if (self.current.tag != .RParen) {
+                        while (true) {
+                            try self.consume(.Identifier, "Expected bindings identifiers in pattern.");
+                            try bindings.append(self.arena, self.previous.lexeme);
+                            if (!self.match(.Comma)) break;
+                        }
+                    }
+                    try self.consume(.RParen, "Expected ')' after pattern bindings.");
+                }
             }
 
             try self.consume(.Arrow, "Expected '=>' after match pattern.");
@@ -317,7 +341,7 @@ pub const Parser = struct {
                 body_node = try self.parse_block();
             } else {
                 body_node = try self.parse_expr();
-                if (self.current.tag != .Dedent) {
+                if (self.current.tag != .Dedent and self.current.tag != .Eof) {
                     try self.consume(.NewLine, "Expected newline after match branch expression.");
                 }
             }
@@ -394,6 +418,8 @@ pub const Parser = struct {
         if (self.current.tag != .RBrace) {
             while (true) {
                 while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
+
+                if (self.check(.RBrace)) break;
 
                 const expr = try self.parse_expr();
 
@@ -690,7 +716,7 @@ test "parser: let and mut declarations" {
     try testing.expectEqual(.MutDeclaration, std.meta.activeTag(stmts[1]));
     try testing.expectEqualStrings("b", stmts[1].MutDeclaration.name);
     try testing.expectEqual(.String, std.meta.activeTag(stmts[1].MutDeclaration.initializer.*));
-    try testing.expectEqualStrings("\"hello\"", stmts[1].MutDeclaration.initializer.*.String);
+    try testing.expectEqualStrings("hello", stmts[1].MutDeclaration.initializer.*.String);
 }
 
 test "parser: operator precedence (math and logical)" {
@@ -866,6 +892,40 @@ test "parser: pattern matching" {
     const b2 = m.branches[1];
     try testing.expectEqualStrings("Option", b2.pattern.namespace.?);
     try testing.expectEqualStrings("None", b2.pattern.name);
+    try testing.expectEqual(@as(usize, 0), b2.pattern.bindings.len);
+    try testing.expectEqual(.Number, std.meta.activeTag(b2.body));
+}
+
+test "parser: pattern matching with default case" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const source =
+        \\let res = match opt:
+        \\    Option::Some(v) => v * 2
+        \\    _ => 0
+    ;
+
+    const root = try setupParserTest(arena.allocator(), source);
+    const match_expr = root.Root.statements[0].LetDeclaration.initializer.*;
+
+    try testing.expectEqual(.MatchExpression, std.meta.activeTag(match_expr));
+    const m = match_expr.MatchExpression;
+
+    try testing.expectEqual(.Identifier, std.meta.activeTag(m.target.*));
+    try testing.expectEqual(@as(usize, 2), m.branches.len);
+
+    // Test branch 1 (Option::Some(v))
+    const b1 = m.branches[0];
+    try testing.expectEqualStrings("Option", b1.pattern.namespace.?);
+    try testing.expectEqualStrings("Some", b1.pattern.name);
+    try testing.expectEqualStrings("v", b1.pattern.bindings[0]);
+    try testing.expectEqual(.Binary, std.meta.activeTag(b1.body));
+
+    // Test branch 2 default '_'
+    const b2 = m.branches[1];
+    try testing.expectEqual(null, b2.pattern.namespace);
+    try testing.expectEqualStrings("_", b2.pattern.name);
     try testing.expectEqual(@as(usize, 0), b2.pattern.bindings.len);
     try testing.expectEqual(.Number, std.meta.activeTag(b2.body));
 }

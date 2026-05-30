@@ -39,12 +39,15 @@ pub const TokenType = enum {
     Slash, // /
     Arrow, // => (for pattern matching)
     Pipe, // |  (for ADTs: | Some(val))
+    Underscore, // _ (for pattern matching)
 
     // --- 4. Delimiters ---
     LParen, // (
     RParen, // )
     LBrace, // {  (for Tables)
     RBrace, // }  (for Tables)
+    LBracket, // ] (for indexation)
+    RBracket,
 
     // --- 5. Formatting (LiLang's magic) ---
     Indent, // New indentation level (replaces '{')
@@ -128,8 +131,9 @@ pub const Lexer = struct {
         }
 
         if (self.peek() == '"') {
+            const token = self.makeToken(.String, start + 1);
             _ = self.advance();
-            return self.makeToken(.String, start);
+            return token;
         } else {
             return self.makeToken(.Error, start);
         }
@@ -170,6 +174,7 @@ pub const Lexer = struct {
 
         const text = self.source[start..self.pos];
 
+        if (std.mem.eql(u8, text, "_")) return self.makeToken(.Underscore, start);
         if (std.mem.eql(u8, text, "let")) return self.makeToken(.Let, start);
         if (std.mem.eql(u8, text, "mut")) return self.makeToken(.Mut, start);
         if (std.mem.eql(u8, text, "fn")) return self.makeToken(.Fn, start);
@@ -287,6 +292,8 @@ pub const Lexer = struct {
             ')' => return self.makeToken(.RParen, start),
             '{' => return self.makeToken(.LBrace, start),
             '}' => return self.makeToken(.RBrace, start),
+            '[' => return self.makeToken(.LBracket, start),
+            ']' => return self.makeToken(.RBracket, start),
             '+' => return self.makeToken(.Plus, start),
             '-' => return self.makeToken(.Minus, start),
             '*' => return self.makeToken(.Star, start),
@@ -362,7 +369,7 @@ test "lexer: strings and floats" {
         .{ .tag = .Let, .lexeme = "let" },
         .{ .tag = .Identifier, .lexeme = "msg" },
         .{ .tag = .Equals, .lexeme = "=" },
-        .{ .tag = .String, .lexeme = "\"hello\"" },
+        .{ .tag = .String, .lexeme = "hello" },
         .{ .tag = .NewLine, .lexeme = "" },
         .{ .tag = .Mut, .lexeme = "mut" },
         .{ .tag = .Identifier, .lexeme = "pi" },
@@ -431,6 +438,39 @@ test "lexer: comments are ignored" {
         .{ .tag = .Equals, .lexeme = "=" },
         .{ .tag = .Number, .lexeme = "10" },
         .{ .tag = .NewLine, .lexeme = "" },
+    });
+}
+
+test "lexer: match with default case" {
+    const source =
+        \\match oui:
+        \\  Option::Some(v) => v
+        \\  _ => oui
+    ;
+
+    try expectTokens(source, &.{
+        .{ .tag = .Match, .lexeme = "match" },
+        .{ .tag = .Identifier, .lexeme = "oui" },
+        .{ .tag = .Colon, .lexeme = ":" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        .{ .tag = .Indent, .lexeme = "" },
+        .{ .tag = .Identifier, .lexeme = "Option" },
+        .{ .tag = .DoubleColon, .lexeme = "::" },
+        .{ .tag = .Identifier, .lexeme = "Some" },
+        .{ .tag = .LParen, .lexeme = "(" },
+        .{ .tag = .Identifier, .lexeme = "v" },
+        .{ .tag = .RParen, .lexeme = ")" },
+        .{ .tag = .Arrow, .lexeme = "=>" },
+        .{ .tag = .Identifier, .lexeme = "v" },
+        .{ .tag = .NewLine, .lexeme = "" },
+
+        .{ .tag = .Underscore, .lexeme = "_" },
+        .{ .tag = .Arrow, .lexeme = "=>" },
+        .{ .tag = .Identifier, .lexeme = "oui" },
+
+        .{ .tag = .Dedent, .lexeme = "" },
+        .{ .tag = .Eof, .lexeme = "" },
     });
 }
 

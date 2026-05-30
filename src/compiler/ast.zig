@@ -123,6 +123,11 @@ pub const Node = union(enum) {
         body: *Node,
     },
 
+    Index: struct {
+        object: *Node,
+        index: *Node,
+    },
+
     pub fn dump(self: Node, indent: usize, is_last: bool, depth_mask: u64) void {
         if (indent > 0) {
             var i: usize = 0;

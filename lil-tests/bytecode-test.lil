@@ -1,0 +1,16 @@
+let a = 10
+let b = 9
+
+mut global = 0 
+
+if global:
+  let local = 20
+  global = local + a + b 
+else:
+  let bouzelouf = 90
+  global = bouzelouf + a + b
+
+mut i = 10
+
+while i:
+  i = i - 1
