@@ -156,10 +156,12 @@ pub const Compiler = struct {
     }
 
     fn compileFunctionBody(self: *Self, fn_decl: anytype) !void {
+        const is_lambda = !@hasField(@TypeOf(fn_decl), "name");
+
         const name_obj = try self.allocator.create(ObjString);
         name_obj.* = .{
             .obj = .{ .obj_type = .String, .next = null },
-            .chars = fn_decl.name,
+            .chars = if (is_lambda) "<lambda>" else fn_decl.name,
         };
 
         var func_obj = try self.allocator.create(FunctionObj);
@@ -186,10 +188,15 @@ pub const Compiler = struct {
         }
 
         try fn_comp.compile(fn_decl.body.*);
-        const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
-        try fn_comp.emitOp(.OP_CONSTANT);
-        try fn_comp.emitByte(zero_idx);
-        try fn_comp.emitOp(.OP_RETURN);
+
+        if (is_lambda) {
+            try fn_comp.emitOp(.OP_RETURN);
+        } else {
+            const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
+            try fn_comp.emitOp(.OP_CONSTANT);
+            try fn_comp.emitByte(zero_idx);
+            try fn_comp.emitOp(.OP_RETURN);
+        }
 
         const func_idx = try self.current_chunk.addConstant(.{ .Object = &func_obj.obj });
         try self.emitOp(.OP_CONSTANT);
@@ -496,6 +503,9 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_DEFINE_GLOBAL);
                 try self.emitByte(name_idx);
             },
+            .Lambda => |lm| {
+                try self.compileFunctionBody(lm);
+            },
             .ReturnStatement => |ret| {
                 if (ret.value) |val| {
                     try self.compile(val.*);
@@ -534,9 +544,6 @@ pub const Compiler = struct {
                 try self.compile(idx.index.*);
 
                 try self.emitOp(.OP_GET_INDEX);
-            },
-            else => {
-                std.debug.print("Unsupported node: {s}\n", .{@tagName(node)});
             },
         }
     }

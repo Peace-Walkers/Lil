@@ -9,7 +9,10 @@ const FunctionObj = value_mod.FunctionObj;
 const TableObj = value_mod.TableObj;
 const VariantObj = value_mod.VariantObj;
 const ObjNative = value_mod.ObjNative;
+const NativeFn = value_mod.NativeFn;
 const debug = @import("../compiler/debug.zig");
+
+const stdlib = @import("../stdlib/stdlib.zig");
 
 pub const VmError = error{
     CompileError,
@@ -35,18 +38,31 @@ pub const VM = struct {
     stack: [256]Value,
     stack_top: usize,
 
+    // Native registry
+    table_methods: std.StringHashMap(NativeFn),
+    string_methods: std.StringHashMap(NativeFn),
+
     globals: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{
+    halt_frame_count: ?usize = null,
+
+    pub fn init(allocator: std.mem.Allocator) !Self {
+        var vm = Self{
             .frames = undefined,
             .stack = undefined,
             .stack_top = 0,
             .globals = std.StringHashMap(Value).init(allocator),
             .allocator = allocator,
             .frame_count = 0,
+            .string_methods = std.StringHashMap(NativeFn).init(allocator),
+            .table_methods = std.StringHashMap(NativeFn).init(allocator),
+            .halt_frame_count = null,
         };
+
+        try vm.table_methods.put("push", stdlib.table.push);
+        try vm.table_methods.put("map", stdlib.table.map);
+        return vm;
     }
 
     pub fn deinit(self: *Self) void {
@@ -202,6 +218,49 @@ pub const VM = struct {
         }
     }
 
+    pub fn executeLambda(self: *Self, lambda: Value, arg: Value) !Value {
+        if (lambda != .Object or lambda.Object.obj_type != .Function) {
+            std.debug.print("Runtime Error: Expected a function for lambda execution.\n", .{});
+            return error.RuntimeError;
+        }
+        const func: *FunctionObj = @fieldParentPtr("obj", lambda.Object);
+
+        const starting_frame_count = self.frame_count;
+
+        if (self.frame_count == 64) {
+            std.debug.print("Runtime Error: Stack Overflow\n", .{});
+            return error.RuntimeError;
+        }
+
+        const base_stack_top = self.stack_top;
+
+        self.stack[self.stack_top] = lambda;
+        self.stack_top += 1;
+
+        self.stack[self.stack_top] = arg;
+        self.stack_top += 1;
+
+        self.frames[self.frame_count] = .{
+            .function = func,
+            .ip = 0,
+            .slot_offset = base_stack_top,
+        };
+        self.frame_count += 1;
+
+        const previous_halt = self.halt_frame_count;
+        self.halt_frame_count = starting_frame_count;
+
+        try self.run();
+
+        self.halt_frame_count = previous_halt;
+
+        const lambda_result = self.stack[self.stack_top - 1];
+
+        self.stack_top = base_stack_top;
+
+        return lambda_result;
+    }
+
     fn isFalsey(value: Value) bool {
         switch (value) {
             .Number => |n| return n == 0,
@@ -335,7 +394,7 @@ pub const VM = struct {
 
                     if (receiver != .Object or receiver.Object.obj_type != .Table) {
                         std.debug.print("Runtime Error: Only tables have methods.\n", .{});
-                        return error.Runtime;
+                        return error.RuntimeError;
                     }
 
                     const table: *TableObj = @fieldParentPtr("obj", receiver.Object);
@@ -372,6 +431,15 @@ pub const VM = struct {
                             .slot_offset = self.stack_top - 2,
                         };
                         self.frame_count += 1;
+                    } else if (self.table_methods.get(method_name)) |native_func| {
+                        const total_args = arg_count + 1;
+                        const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+
+                        const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+
+                        self.stack_top -= total_args;
+                        self.stack[self.stack_top] = result;
+                        self.stack_top += 1;
                     } else {
                         std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{method_name});
                         return error.RuntimeError;
@@ -391,6 +459,20 @@ pub const VM = struct {
                     const result = a.Number - b.Number;
                     self.push(.{ .Number = result });
                 },
+                .OP_MULTIPLY => {
+                    const a = self.pop();
+                    const b = self.pop();
+
+                    std.debug.print("[DEBUG VM] MULTIPLY: {any} * {any}\n", .{ a, b });
+
+                    if (a != .Number or b != .Number) {
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const result = a.Number * b.Number;
+                    self.push(.{ .Number = result });
+                },
                 .OP_EQUAL => {
                     const a = self.pop();
                     const b = self.pop();
@@ -401,7 +483,12 @@ pub const VM = struct {
                     const result = self.pop();
                     self.frame_count -= 1;
 
-                    if (self.frame_count == 0) {
+                    self.stack_top = self.frames[self.frame_count].slot_offset;
+                    self.push(result);
+
+                    if (self.halt_frame_count) |halt_target| {
+                        if (self.frame_count == halt_target) return;
+                    } else if (self.frame_count == 0) {
                         std.debug.print("====FINAL MEMORY STATE====\n", .{});
                         var it = self.globals.iterator();
                         while (it.next()) |entry| {
@@ -473,7 +560,7 @@ pub const VM = struct {
                         .Native => {
                             const native_obj: *ObjNative = @fieldParentPtr("obj", callee.Object);
                             const args_slice = self.stack[self.stack_top - arg_count .. self.stack_top];
-                            const result = native_obj.function(arg_count, args_slice.ptr);
+                            const result = native_obj.function(self, arg_count, args_slice.ptr);
 
                             self.stack_top -= (arg_count + 1);
                             self.push(result);

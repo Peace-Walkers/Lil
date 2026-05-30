@@ -37,7 +37,7 @@ pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
         .name = null,
     };
 
-    var vm = VM.init(allocator);
+    var vm = try VM.init(allocator);
     defer vm.deinit();
 
     try vm.interpret(script_function);

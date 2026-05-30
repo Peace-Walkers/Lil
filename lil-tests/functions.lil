@@ -35,3 +35,7 @@ match opt:
 
 
 io::print("oui je test des trucs")
+
+let ages = {25, 30, 18}
+let doubled = ages.map(|e| e * 2)
+

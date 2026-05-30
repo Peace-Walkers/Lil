@@ -42,7 +42,16 @@ pub const Obj = struct {
                 const string_obj: *ObjString = @fieldParentPtr("obj", self);
                 std.debug.print("\"{s}\"", .{string_obj.chars});
             },
-            .Table => std.debug.print("<Table>", .{}),
+            .Table => {
+                std.debug.print("Table:\n", .{});
+                const table_obj: *TableObj = @fieldParentPtr("obj", self);
+                std.debug.print("elements: [ ", .{});
+                for (table_obj.elements.items) |elem| {
+                    elem.print();
+                    std.debug.print(", ", .{});
+                }
+                std.debug.print("]\n", .{});
+            },
             .Function => std.debug.print("<Fn>", .{}),
             .Variant => std.debug.print("<Variant>", .{}),
             .Native => {
@@ -78,7 +87,7 @@ pub const VariantObj = struct {
     payload: []Value,
 };
 
-pub const NativeFn = *const fn (arg_count: u8, args: [*]Value) Value;
+pub const NativeFn = *const fn (vm: *anyopaque, arg_count: u8, args: [*]Value) Value;
 
 pub const ObjNative = struct {
     obj: Obj,
