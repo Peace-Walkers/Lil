@@ -290,7 +290,7 @@ pub const VM = struct {
         while (true) {
             var frame = self.currentFrame();
 
-            _ = debug.disassembleInstruction(&frame.function.chunk, frame.ip) catch 0;
+            // _ = debug.disassembleInstruction(&frame.function.chunk, frame.ip) catch 0;
 
             const instruction = self.readByte();
             const op: OpCode = @enumFromInt(instruction);
@@ -463,8 +463,6 @@ pub const VM = struct {
                     const a = self.pop();
                     const b = self.pop();
 
-                    std.debug.print("[DEBUG VM] MULTIPLY: {any} * {any}\n", .{ a, b });
-
                     if (a != .Number or b != .Number) {
                         std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
                         return error.RuntimeError;
@@ -489,13 +487,13 @@ pub const VM = struct {
                     if (self.halt_frame_count) |halt_target| {
                         if (self.frame_count == halt_target) return;
                     } else if (self.frame_count == 0) {
-                        std.debug.print("====FINAL MEMORY STATE====\n", .{});
-                        var it = self.globals.iterator();
-                        while (it.next()) |entry| {
-                            std.debug.print("{s} = ", .{entry.key_ptr.*});
-                            entry.value_ptr.*.print();
-                            std.debug.print("\n", .{});
-                        }
+                        // std.debug.print("====FINAL MEMORY STATE====\n", .{});
+                        // var it = self.globals.iterator();
+                        // while (it.next()) |entry| {
+                        //     std.debug.print("{s} = ", .{entry.key_ptr.*});
+                        //     entry.value_ptr.*.print();
+                        //     std.debug.print("\n", .{});
+                        // }
                         return;
                     }
 

@@ -12,7 +12,7 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
 
-    if (arg_count == 1) {
+    if (arg_count == 2) {
         const v: *VM = @ptrCast(@alignCast(vm));
         table.elements.append(v.allocator, args[1]) catch unreachable;
     }
@@ -42,7 +42,6 @@ pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         const result = v.executeLambda(lambda, elem) catch {
             return .Null;
         };
-        std.debug.print("result: {any}\n", .{result});
 
         new_table.elements.append(v.allocator, result) catch unreachable;
     }

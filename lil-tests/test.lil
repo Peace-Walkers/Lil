@@ -1,0 +1,13 @@
+let a = 10
+let b = 9
+
+mut ages = {10, 5, 3}
+
+io::print("before:")
+io::print(ages)
+
+ages.push(b)
+ages.push(a)
+
+io::print("after:")
+io::print(ages)

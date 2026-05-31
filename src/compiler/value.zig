@@ -14,12 +14,12 @@ pub const Value = union(ValueType) {
     Number: i64,
     Object: *Obj,
 
-    pub fn print(self: Value) void {
+    pub fn print(self: Value, indent: usize) void {
         switch (self) {
             .Null => std.debug.print("null", .{}),
             .Boolean => |b| std.debug.print("{any}", .{b}),
             .Number => |n| std.debug.print("{d}", .{n}),
-            .Object => |obj| obj.print(),
+            .Object => |obj| obj.print(indent),
         }
     }
 };
@@ -36,21 +36,44 @@ pub const Obj = struct {
     obj_type: ObjType,
     next: ?*Obj,
 
-    pub fn print(self: *Obj) void {
+    pub fn print(self: *Obj, indent: usize) void {
         switch (self.obj_type) {
             .String => {
                 const string_obj: *ObjString = @fieldParentPtr("obj", self);
                 std.debug.print("\"{s}\"", .{string_obj.chars});
             },
             .Table => {
-                std.debug.print("Table:\n", .{});
                 const table_obj: *TableObj = @fieldParentPtr("obj", self);
-                std.debug.print("elements: [ ", .{});
-                for (table_obj.elements.items) |elem| {
-                    elem.print();
-                    std.debug.print(", ", .{});
+
+                if (table_obj.elements.items.len == 0 and table_obj.fields.count() == 0) {
+                    std.debug.print("Table {{}}", .{});
+                    return;
                 }
-                std.debug.print("]\n", .{});
+
+                std.debug.print("Table {{\n", .{});
+
+                if (table_obj.elements.items.len > 0) {
+                    printIndent(indent + 1);
+                    std.debug.print("elements: [ ", .{});
+                    for (table_obj.elements.items, 0..) |elem, i| {
+                        elem.print(indent + 1);
+                        if (i != table_obj.elements.items.len - 1) {
+                            std.debug.print(", ", .{});
+                        }
+                    }
+                    std.debug.print(" ],\n", .{});
+                }
+
+                var it = table_obj.fields.iterator();
+                while (it.next()) |field| {
+                    printIndent(indent + 1);
+                    std.debug.print("{s}: ", .{field.key_ptr.*});
+                    field.value_ptr.*.print(indent + 1);
+                    std.debug.print(",\n", .{});
+                }
+
+                printIndent(indent);
+                std.debug.print("}}", .{});
             },
             .Function => std.debug.print("<Fn>", .{}),
             .Variant => std.debug.print("<Variant>", .{}),
@@ -61,6 +84,13 @@ pub const Obj = struct {
         }
     }
 };
+
+fn printIndent(indent: usize) void {
+    var i: usize = 0;
+    while (i < indent) : (i += 1) {
+        std.debug.print("    ", .{}); // 4 espaces par niveau
+    }
+}
 
 pub const ObjString = struct {
     obj: Obj,

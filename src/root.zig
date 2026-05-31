@@ -25,7 +25,7 @@ pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
 
     try chunk.write(@intFromEnum(chunk_mod.OpCode.OP_RETURN), 0);
 
-    try debug.disassembleChunk(&chunk, "Bytecode");
+    // try debug.disassembleChunk(&chunk, "Bytecode");
 
     const script_function = try allocator.create(value_mod.FunctionObj);
     defer allocator.destroy(script_function);

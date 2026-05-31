@@ -9,7 +9,7 @@ pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    args[0].print();
+    args[0].print(0);
     std.debug.print("\n", .{});
     return .Null;
 }
