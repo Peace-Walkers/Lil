@@ -26,3 +26,14 @@ io::println("je test des trucs")
 
 io::print(doubled.len() - filtred.len())
 io::println(" person are older than 15")
+
+io::println("filtred before pop: ")
+io::println(filtred)
+
+let last = filtred.pop()
+
+io::println("filtred after pop: ")
+io::println(filtred)
+
+io::print("last: ")
+io::println(last)

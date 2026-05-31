@@ -27,6 +27,7 @@ pub const Node = union(enum) {
     String: []const u8,
     Identifier: []const u8,
     Boolean: bool,
+    ExpressionStatement: *Node,
 
     Root: struct {
         statements: []Node,

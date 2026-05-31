@@ -20,6 +20,24 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     return args[0];
 }
 
+pub fn pop(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    _ = vm;
+    if (args[0] != .Object or args[0].Object.obj_type != .Table) {
+        //TODO: return a error
+        return .Null;
+    }
+
+    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+
+    if (arg_count == 1) {
+        if (table.elements.pop()) |result| {
+            return result;
+        }
+    }
+
+    return .Null;
+}
+
 pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 

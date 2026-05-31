@@ -81,6 +81,7 @@ pub const VM = struct {
         try vm.table_methods.put("map", stdlib.table.map);
         try vm.table_methods.put("filter", stdlib.table.filter);
         try vm.table_methods.put("len", stdlib.table.len);
+        try vm.table_methods.put("pop", stdlib.table.pop);
         return vm;
     }
 

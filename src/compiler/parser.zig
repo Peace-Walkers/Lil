@@ -555,7 +555,10 @@ pub const Parser = struct {
             _ = self.advance();
         }
 
-        return expr;
+        const expr_ptr = try self.arena.create(ast.Node);
+        expr_ptr.* = expr;
+
+        return .{ .ExpressionStatement = expr_ptr };
     }
 
     fn parse_primary(self: *Self) ParseError!ast.Node {
