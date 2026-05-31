@@ -1,4 +1,4 @@
-let a = 10
+let a = 15
 let b = 9
 
 mut ages = {10, 5, 3}
@@ -11,3 +11,13 @@ ages.push(a)
 
 io::print("after:")
 io::print(ages)
+
+let doubled = ages.map(|a| a * 2)
+
+io::print("doubled:")
+io::print(doubled)
+
+let filtred = ages.map(|a| a *2).filter(|a| a < 15)
+
+io::print("doubled filtred:")
+io::print(filtred)

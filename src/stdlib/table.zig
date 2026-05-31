@@ -48,3 +48,33 @@ pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     return .{ .Object = &new_table.obj };
 }
+
+pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+
+    if (arg_count < 2 or args[0] != .Object or args[0].Object.obj_type != .Table) {
+        //TODO: return a error
+        return .Null;
+    }
+
+    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+    const lambda = args[1];
+
+    const new_table = v.allocator.create(TableObj) catch unreachable;
+    new_table.* = .{
+        .obj = .{ .obj_type = .Table, .next = null },
+        .fields = std.StringHashMap(Value).init(v.allocator),
+        .elements = .empty,
+    };
+
+    for (table.elements.items) |elem| {
+        const condition_res = v.executeLambda(lambda, elem) catch {
+            return .Null;
+        };
+
+        if (!VM.isFalsey(condition_res)) {
+            new_table.elements.append(v.allocator, elem) catch unreachable;
+        }
+    }
+    return .{ .Object = &new_table.obj };
+}

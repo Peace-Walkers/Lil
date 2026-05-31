@@ -344,6 +344,7 @@ pub const Compiler = struct {
                     .Star => try self.emitOp(.OP_MULTIPLY),
                     .Slash => try self.emitOp(.OP_DIVIDE),
                     .EqualsEquals => try self.emitOp(.OP_EQUAL),
+                    .Less => try self.emitOp(.OP_LESS),
                     else => {
                         std.debug.print("Unsupported operator : {s}\n", .{@tagName(b.operator)});
                         return error.UnsupportedOperator;

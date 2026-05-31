@@ -62,6 +62,7 @@ pub const VM = struct {
 
         try vm.table_methods.put("push", stdlib.table.push);
         try vm.table_methods.put("map", stdlib.table.map);
+        try vm.table_methods.put("filter", stdlib.table.filter);
         return vm;
     }
 
@@ -261,7 +262,7 @@ pub const VM = struct {
         return lambda_result;
     }
 
-    fn isFalsey(value: Value) bool {
+    pub fn isFalsey(value: Value) bool {
         switch (value) {
             .Number => |n| return n == 0,
             .Boolean => |b| return !b,
@@ -470,6 +471,17 @@ pub const VM = struct {
 
                     const result = a.Number * b.Number;
                     self.push(.{ .Number = result });
+                },
+                .OP_LESS => {
+                    const a = self.pop();
+                    const b = self.pop();
+
+                    if (a != .Number or b != .Number) {
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    self.push(.{ .Boolean = a.Number < b.Number });
                 },
                 .OP_EQUAL => {
                     const a = self.pop();
