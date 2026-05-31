@@ -3,21 +3,26 @@ let b = 9
 
 mut ages = {10, 5, 3}
 
-io::print("before:")
-io::print(ages)
+io::println("before:")
+io::println(ages)
 
 ages.push(b)
 ages.push(a)
 
-io::print("after:")
-io::print(ages)
+io::println("after:")
+io::println(ages)
 
 let doubled = ages.map(|a| a * 2)
 
-io::print("doubled:")
-io::print(doubled)
+io::println("doubled:")
+io::println(doubled)
 
 let filtred = ages.map(|a| a *2).filter(|a| a < 15)
 
-io::print("doubled filtred:")
-io::print(filtred)
+io::println("doubled filtred:")
+io::println(filtred)
+
+io::println("je test des trucs")
+
+io::print(doubled.len() - filtred.len())
+io::println(" person are older than 15")

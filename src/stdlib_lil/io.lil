@@ -1,0 +1,5 @@
+fn println_override(str):
+  io::print(str)
+  io::print("\n")
+
+io::println = println_override

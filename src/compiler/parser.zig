@@ -518,13 +518,7 @@ pub const Parser = struct {
         const expr = try self.parse_expr();
 
         if (self.match(.Equals)) {
-            if (expr != .Identifier) {
-                std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
-                self.had_error = true;
-                return error.SyntaxError;
-            }
-
-            const name = expr.Identifier;
+            // const name = expr.Identifier;
             const value_node = try self.parse_expr();
 
             const heap_node = try self.arena.create(ast.Node);
@@ -534,7 +528,25 @@ pub const Parser = struct {
                 try self.consume(.NewLine, "Expected newline after assignment");
             }
 
-            return .{ .Assignment = .{ .name = name, .value = heap_node } };
+            switch (expr) {
+                .Identifier => |name| {
+                    return .{ .Assignment = .{ .name = name, .value = heap_node } };
+                },
+                .Get => |g| {
+                    return .{ .Set = .{ .object = g.object, .name = g.name, .value = heap_node } };
+                },
+                .VariantAccess => |v| {
+                    const ns_ptr = try self.arena.create(ast.Node);
+                    ns_ptr.* = .{ .Identifier = v.namespace };
+
+                    return .{ .Set = .{ .object = ns_ptr, .name = v.variant, .value = heap_node } };
+                },
+                else => {
+                    std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
+                    self.had_error = true;
+                    return error.SyntaxError;
+                },
+            }
         }
 
         if (self.current.tag != .Eof and self.current.tag != .Dedent and self.previous.tag != .Dedent) {

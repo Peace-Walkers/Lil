@@ -123,6 +123,12 @@ pub const Node = union(enum) {
         body: *Node,
     },
 
+    Set: struct {
+        object: *Node,
+        name: []const u8,
+        value: *Node,
+    },
+
     Index: struct {
         object: *Node,
         index: *Node,
@@ -343,6 +349,9 @@ pub const Node = union(enum) {
                 }
                 std.debug.print("|\n", .{});
                 lambda.body.dump(indent + 1, true, child_mask);
+            },
+            else => {
+                std.debug.print("[{}]", @tagName(self));
             },
         }
     }

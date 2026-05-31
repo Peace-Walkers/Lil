@@ -78,3 +78,16 @@ pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     }
     return .{ .Object = &new_table.obj };
 }
+
+pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    _ = vm;
+
+    if (arg_count > 1 or args[0] != .Object or args[0].Object.obj_type != .Table) {
+        //TODO: return a error
+        return .Null;
+    }
+
+    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+
+    return .{ .Number = @intCast(table.elements.items.len) };
+}

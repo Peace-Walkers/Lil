@@ -301,32 +301,21 @@ pub const Compiler = struct {
                     try self.emitByte(ns_idx);
                     try self.emitByte(name_idx);
                     try self.emitByte(@intCast(v.arguments.len));
-                } else if (std.mem.eql(u8, v.namespace, "io")) {
-                    if (std.mem.eql(u8, v.variant, "print")) {
-                        const native_obj = try self.allocator.create(value_mod.ObjNative);
-                        native_obj.* = .{
-                            .obj = .{ .obj_type = .Native, .next = null },
-                            .function = stdlib.io.print,
-                            .name = "print",
-                        };
-
-                        const const_idx = try self.current_chunk.addConstant(.{ .Object = &native_obj.obj });
-                        try self.emitOp(.OP_CONSTANT);
-                        try self.emitByte(const_idx);
-
-                        for (v.arguments) |arg| {
-                            try self.compile(arg);
-                        }
-
-                        try self.emitOp(.OP_CALL);
-                        try self.emitByte(@intCast(v.arguments.len));
-                    } else {
-                        std.debug.print("Compile Error: Unknown function '{s}' in module 'io'.\n", .{v.variant});
-                        return error.CompileError;
-                    }
                 } else {
-                    std.debug.print("Compile Error: Undefined type or module '{s}'.\n", .{v.namespace});
-                    return error.CompileError;
+                    const ns_idx = try self.emitStringConstant(v.namespace);
+                    try self.emitOp(.OP_GET_GLOBAL);
+                    try self.emitByte(ns_idx);
+
+                    const func_idx = try self.emitStringConstant(v.variant);
+                    try self.emitOp(.OP_GET_PROPERTY);
+                    try self.emitByte(func_idx);
+
+                    for (v.arguments) |arg| {
+                        try self.compile(arg);
+                    }
+
+                    try self.emitOp(.OP_CALL);
+                    try self.emitByte(@intCast(v.arguments.len));
                 }
             },
             .String => |s| {
@@ -398,6 +387,14 @@ pub const Compiler = struct {
                 }
 
                 self.patchJump(else_jump);
+            },
+            .Set => |s| {
+                try self.compile(s.object.*);
+                try self.compile(s.value.*);
+
+                const name_idx = try self.emitStringConstant(s.name);
+                try self.emitOp(.OP_SET_PROPRETY);
+                try self.emitByte(name_idx);
             },
             .MatchExpression => |m| {
                 try self.compile(m.target.*);

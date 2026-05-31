@@ -60,9 +60,27 @@ pub const VM = struct {
             .halt_frame_count = null,
         };
 
+        var io_module = try allocator.create(TableObj);
+        io_module.* = .{
+            .obj = .{ .obj_type = .Table, .next = null },
+            .fields = std.StringHashMap(Value).init(allocator),
+            .elements = .empty,
+        };
+
+        var print_native = try allocator.create(ObjNative);
+        print_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.io.print,
+            .name = "print",
+        };
+
+        try io_module.fields.put("print", .{ .Object = &print_native.obj });
+        try vm.globals.put("io", .{ .Object = &io_module.obj });
+
         try vm.table_methods.put("push", stdlib.table.push);
         try vm.table_methods.put("map", stdlib.table.map);
         try vm.table_methods.put("filter", stdlib.table.filter);
+        try vm.table_methods.put("len", stdlib.table.len);
         return vm;
     }
 
@@ -384,6 +402,25 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
                 },
+                .OP_SET_PROPRETY => {
+                    const name_val = self.readConstant();
+                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const property_name = name_obj.chars;
+
+                    const value = self.pop();
+                    const instance_val = self.pop();
+
+                    if (instance_val != .Object or instance_val.Object.obj_type != .Table) {
+                        std.debug.print("Runtime Error: Only tables have properties.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const table: *TableObj = @fieldParentPtr("obj", instance_val.Object);
+
+                    try table.fields.put(property_name, value);
+
+                    self.push(value);
+                },
                 .OP_INVOKE => {
                     const methode_name_val = self.readConstant();
                     const methode_name_obj: *ObjString = @fieldParentPtr("obj", methode_name_val.Object);
@@ -473,8 +510,8 @@ pub const VM = struct {
                     self.push(.{ .Number = result });
                 },
                 .OP_LESS => {
-                    const a = self.pop();
                     const b = self.pop();
+                    const a = self.pop();
 
                     if (a != .Number or b != .Number) {
                         std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
