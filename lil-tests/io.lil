@@ -8,3 +8,21 @@ io::println("\n========[CONTENT]========\n")
 
 io::println(content.content)
 
+
+
+io::println("\n========[STRING TESTS]========\n")
+
+mut str = "je test des truc"
+
+io::print("before : ")
+io::println(str)
+io::print("len: ")
+io::println(str.len())
+io::println("")
+
+str.push("s")
+
+io::print("after : ")
+io::println(str)
+io::print("len: ")
+io::println(str.len())

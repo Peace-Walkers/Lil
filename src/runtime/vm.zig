@@ -115,6 +115,9 @@ pub const VM = struct {
         try vm.table_methods.put("filter", stdlib.table.filter);
         try vm.table_methods.put("len", stdlib.table.len);
         try vm.table_methods.put("pop", stdlib.table.pop);
+
+        try vm.string_methods.put("push", stdlib.string.push);
+        try vm.string_methods.put("len", stdlib.string.len);
         return vm;
     }
 
@@ -486,60 +489,81 @@ pub const VM = struct {
                     const method_name = methode_name_obj.chars;
 
                     const arg_count = self.readByte();
-
                     const receiver = self.peek(arg_count);
 
-                    if (receiver != .Object or receiver.Object.obj_type != .Table) {
-                        std.debug.print("Runtime Error: Only tables have methods.\n", .{});
+                    if (receiver != .Object) {
+                        std.debug.print("Runtime Error: Only objects have methods.\n", .{});
                         return error.RuntimeError;
                     }
 
-                    const table = receiver.Object.toTable();
+                    switch (receiver.Object.obj_type) {
+                        .Table => {
+                            const table = receiver.Object.toTable();
 
-                    if (table.fields.get(method_name)) |methode_val| {
-                        if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
-                            std.debug.print("Runtime Error: Property '{s}' is not a function\n", .{method_name});
+                            if (table.fields.get(method_name)) |methode_val| {
+                                // --- Appel d'une fonction LiLang stockée dans la table ---
+                                if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
+                                    std.debug.print("Runtime Error: Property '{s}' is not a function\n", .{method_name});
+                                    return error.RuntimeError;
+                                }
+
+                                const func = methode_val.Object.toFunction();
+
+                                if (arg_count + 1 != func.arity) {
+                                    std.debug.print("Runtime Error: Expected {d} args but got {d}", .{ func.arity, arg_count + 1 });
+                                    return error.RuntimeError;
+                                }
+
+                                if (self.frame_count == 64) {
+                                    std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                                    return error.RuntimeError;
+                                }
+
+                                var i: usize = 0;
+                                while (i <= arg_count) : (i += 1) {
+                                    self.stack[self.stack_top - i] = self.stack[self.stack_top - i - 1];
+                                }
+
+                                self.stack[self.stack_top - arg_count - 1] = .{ .Object = &func.obj };
+                                self.stack_top += 1;
+
+                                self.frames[self.frame_count] = .{
+                                    .function = func,
+                                    .ip = 0,
+                                    .slot_offset = self.stack_top - 2,
+                                };
+                                self.frame_count += 1;
+                            } else if (self.table_methods.get(method_name)) |native_func| {
+                                const total_args = arg_count + 1;
+                                const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+
+                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+
+                                self.stack_top -= total_args;
+                                self.push(result);
+                            } else {
+                                std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .String => {
+                            if (self.string_methods.get(method_name)) |native_func| {
+                                const total_args = arg_count + 1;
+                                const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+
+                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+
+                                self.stack_top -= total_args;
+                                self.push(result);
+                            } else {
+                                std.debug.print("Runtime Error: Undefined string method '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        else => {
+                            std.debug.print("Runtime Error: Type '{s}' does not support methods.\n", .{@tagName(receiver.Object.obj_type)});
                             return error.RuntimeError;
-                        }
-
-                        const func = methode_val.Object.toFunction();
-
-                        if (arg_count + 1 != func.arity) {
-                            std.debug.print("Runtime Error: Expected {d} args but got {d}", .{ func.arity, arg_count + 1 });
-                            return error.RuntimeError;
-                        }
-
-                        if (self.frame_count == 64) {
-                            std.debug.print("Runtime Error: Stack Overflow\n", .{});
-                            return error.RuntimeError;
-                        }
-
-                        var i: usize = 0;
-                        while (i <= arg_count) : (i += 1) {
-                            self.stack[self.stack_top - i] = self.stack[self.stack_top - i - 1];
-                        }
-
-                        self.stack[self.stack_top - arg_count - 1] = .{ .Object = &func.obj };
-                        self.stack_top += 1;
-
-                        self.frames[self.frame_count] = .{
-                            .function = func,
-                            .ip = 0,
-                            .slot_offset = self.stack_top - 2,
-                        };
-                        self.frame_count += 1;
-                    } else if (self.table_methods.get(method_name)) |native_func| {
-                        const total_args = arg_count + 1;
-                        const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
-
-                        const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
-
-                        self.stack_top -= total_args;
-                        self.stack[self.stack_top] = result;
-                        self.stack_top += 1;
-                    } else {
-                        std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{method_name});
-                        return error.RuntimeError;
+                        },
                     }
                 },
                 .OP_ADD => {
