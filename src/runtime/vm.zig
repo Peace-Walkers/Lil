@@ -118,6 +118,7 @@ pub const VM = struct {
 
         try vm.string_methods.put("push", stdlib.string.push);
         try vm.string_methods.put("len", stdlib.string.len);
+        try vm.string_methods.put("split", stdlib.string.split);
         return vm;
     }
 
@@ -501,7 +502,6 @@ pub const VM = struct {
                             const table = receiver.Object.toTable();
 
                             if (table.fields.get(method_name)) |methode_val| {
-                                // --- Appel d'une fonction LiLang stockée dans la table ---
                                 if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
                                     std.debug.print("Runtime Error: Property '{s}' is not a function\n", .{method_name});
                                     return error.RuntimeError;

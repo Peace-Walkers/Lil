@@ -2,7 +2,17 @@ let path = "build.zig"
 
 let content = io::read(path)
 
-io::println(fs::stat(path))
+let stat = fs::stat(path)
+io::println(stat)
+
+io::println("\n========[CONTENT]========\n")
+
+match stat.kind:
+  FileType::File => io::println("Is a file")
+  FileType::Dir => io::println("Is a directory")
+  FileType::Sym => io::println("Is a symlink")
+  _ => io::println("Unkown type")
+
 
 io::println("\n========[CONTENT]========\n")
 
@@ -10,7 +20,7 @@ io::println(content.content)
 
 
 
-io::println("\n========[STRING TESTS]========\n")
+io::println("\n========[STRING PUSH TESTS]========\n")
 
 mut str = "je test des truc"
 
@@ -26,3 +36,20 @@ io::print("after : ")
 io::println(str)
 io::print("len: ")
 io::println(str.len())
+
+
+io::println("\n========[STRING SPLIT TESTS]========\n")
+
+let splitted = content.content.split("\n")
+
+let split_len = splitted.len()
+mut i = 0
+
+while i < split_len:
+  io::print("line ")
+  io::print(i)
+  io::print(": ")
+  io::println(splitted[i])
+  i = i + 1
+
+#io::println(splitted)

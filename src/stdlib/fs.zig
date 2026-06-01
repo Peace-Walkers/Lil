@@ -13,7 +13,7 @@ const VM = @import("../runtime/vm.zig").VM;
 /// Returns a table:
 /// {
 ///     size: Number,    # Size of the file in bytes
-///     type: Variant,   # Filetype::File, Filetype::Directory, Filetype::SymLink, or Filetype::Unknown
+///     kind: Variant,   # Filetype::File, Filetype::Directory, Filetype::SymLink, or Filetype::Unknown
 ///     mtime: Number,   # Last modification time (nanoseconds)
 ///     atime: Number,   # Last access time (nanoseconds)
 ///     ctime: Number,   # Creation/Status change time (nanoseconds)
@@ -50,8 +50,8 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     const kind_str: []const u8 = switch (file_stat.kind) {
         .file => "File",
-        .directory => "Directory",
-        .sym_link => "SymLink",
+        .directory => "Dir",
+        .sym_link => "Sym",
         else => "Unknown",
     };
 
@@ -59,7 +59,7 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     const kind_var = v.createVariant(ns_str, name_str, &.{}) catch unreachable;
 
-    stat_table.fields.put("type", .{ .Object = &kind_var.obj }) catch unreachable;
+    stat_table.fields.put("kind", .{ .Object = &kind_var.obj }) catch unreachable;
 
     return .{ .Object = &stat_table.obj };
 }

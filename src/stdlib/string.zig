@@ -38,3 +38,33 @@ pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     return .{ .Number = @intCast(string.chars.len) };
 }
+
+pub fn split(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    if (args[0] != .Object or args[0].Object.obj_type != .String) {
+        //TODO: return a error
+        return .Null;
+    }
+
+    if (arg_count != 2) {
+        return .Null;
+    }
+
+    if (args[1] != .Object or args[1].Object.obj_type != .String) {
+        return .Null;
+    }
+
+    const v: *VM = @ptrCast(@alignCast(vm));
+    const sep = args[1].Object.toString();
+    const string = args[0].Object.toString();
+
+    var splitted = std.mem.splitAny(u8, string.chars, sep.chars);
+
+    const table = v.createTable() catch unreachable;
+
+    while (splitted.next()) |slice| {
+        const split_obj = v.createString(slice) catch unreachable;
+        table.elements.append(v.allocator, .{ .Object = &split_obj.obj }) catch unreachable;
+    }
+
+    return .{ .Object = &table.obj };
+}

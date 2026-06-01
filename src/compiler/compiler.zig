@@ -319,7 +319,28 @@ pub const Compiler = struct {
                 }
             },
             .String => |s| {
-                const str_idx = try self.emitStringConstant(s);
+                var unescaped: std.ArrayList(u8) = .empty;
+                defer unescaped.deinit(self.allocator);
+
+                var i: usize = 0;
+                while (i < s.len) : (i += 1) {
+                    if (s[i] == '\\' and i + 1 < s.len) {
+                        switch (s[i + 1]) {
+                            'n' => try unescaped.append(self.allocator, '\n'),
+                            'r' => try unescaped.append(self.allocator, '\r'),
+                            't' => try unescaped.append(self.allocator, '\t'),
+                            '\\' => try unescaped.append(self.allocator, '\\'),
+                            '"' => try unescaped.append(self.allocator, '"'),
+                            else => try unescaped.append(self.allocator, s[i + 1]),
+                        }
+                        i += 1;
+                    } else {
+                        try unescaped.append(self.allocator, s[i]);
+                    }
+                }
+
+                const final_str = try self.allocator.dupe(u8, unescaped.items);
+                const str_idx = try self.emitStringConstant(final_str);
                 try self.emitOp(.OP_CONSTANT);
                 try self.emitByte(str_idx);
             },
