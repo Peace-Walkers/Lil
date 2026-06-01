@@ -47,6 +47,7 @@ pub const VM = struct {
     // Native registry
     table_methods: std.StringHashMap(NativeFn),
     string_methods: std.StringHashMap(NativeFn),
+    result_methods: std.StringHashMap(NativeFn),
 
     globals: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
@@ -64,6 +65,7 @@ pub const VM = struct {
             .frame_count = 0,
             .string_methods = std.StringHashMap(NativeFn).init(allocator),
             .table_methods = std.StringHashMap(NativeFn).init(allocator),
+            .result_methods = std.StringHashMap(NativeFn).init(allocator),
             .halt_frame_count = null,
             .io = io,
         };
@@ -119,6 +121,9 @@ pub const VM = struct {
         try vm.string_methods.put("push", stdlib.string.push);
         try vm.string_methods.put("len", stdlib.string.len);
         try vm.string_methods.put("split", stdlib.string.split);
+
+        try vm.result_methods.put("unwrap", stdlib.variant.unwrap);
+
         return vm;
     }
 
@@ -168,6 +173,22 @@ pub const VM = struct {
             .payload = payload,
         };
         return variant_obj;
+    }
+
+    pub fn creteResultOk(self: *Self, payload: Value) !Value {
+        const ns_str = try self.createString("Result");
+        const name_str = try self.createString("Ok");
+
+        const payload_slice = try self.allocator.alloc(Value, 1);
+        payload_slice[0] = payload;
+
+        const variant_obj = try self.createVariant(ns_str, name_str, payload_slice);
+        return .{ .Object = &variant_obj };
+    }
+
+    pub fn createResultErr(self: *Self, error_msg: []const u8) !Value {
+        //TODO
+
     }
 
     fn readByte(self: *Self) u8 {
@@ -557,6 +578,26 @@ pub const VM = struct {
                                 self.push(result);
                             } else {
                                 std.debug.print("Runtime Error: Undefined string method '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .Variant => {
+                            const variant = receiver.Object.toVariant();
+                            if (variant.namespace) |namespace| {
+                                if (std.mem.eql(u8, namespace, "Result")) {
+                                    if (self.result_methods.get(method_name)) |native_fn| {
+                                        const total_args = arg_count + 1;
+                                        const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+                                        const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                        self.stack_top -= total_args;
+                                        self.push(result);
+                                    } else {
+                                        std.debug.print("Runtime Error: Undefined method '{s}' on Result variant.\n", .{method_name});
+                                        return error.RuntimeError;
+                                    }
+                                }
+                            } else {
+                                std.debug.print("Runtime Error: Variant '{s}' does not support methods.\n", .{variant.namespace.chars});
                                 return error.RuntimeError;
                             }
                         },

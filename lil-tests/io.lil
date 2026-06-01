@@ -53,3 +53,6 @@ while i < split_len:
   i = i + 1
 
 #io::println(splitted)
+
+while i:
+  io::println(content)
