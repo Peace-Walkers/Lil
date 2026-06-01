@@ -16,7 +16,7 @@ pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const val = args[0];
 
     if (val == .Object and val.Object.obj_type == .String) {
-        const string_obj: *ObjString = @fieldParentPtr("obj", val.Object);
+        const string_obj = val.Object.toString();
 
         var i: usize = 0;
         while (i < string_obj.chars.len) : (i += 1) {
@@ -41,7 +41,7 @@ pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const path_obj: *ObjString = @fieldParentPtr("obj", args[0].Object);
+    const path_obj = args[0].Object.toString();
     const path = path_obj.chars;
 
     var content_slice: []u8 = undefined;
@@ -57,18 +57,9 @@ pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         };
     }
 
-    const content_str = v.allocator.create(ObjString) catch unreachable;
-    content_str.* = .{
-        .obj = .{ .obj_type = .String, .next = null },
-        .chars = content_slice,
-    };
+    const content_str = v.createString(content_slice) catch unreachable;
 
-    var result_table = v.allocator.create(TableObj) catch unreachable;
-    result_table.* = .{
-        .obj = .{ .obj_type = .Table, .next = null },
-        .fields = std.StringHashMap(Value).init(v.allocator),
-        .elements = .empty,
-    };
+    var result_table = v.createTable() catch unreachable;
 
     result_table.fields.put("content", .{ .Object = &content_str.obj }) catch unreachable;
     result_table.fields.put("cursor", .{ .Number = @intCast(content_slice.len) }) catch unreachable;

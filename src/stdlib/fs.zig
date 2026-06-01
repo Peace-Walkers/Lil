@@ -28,19 +28,14 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const path_obj: *ObjString = @fieldParentPtr("obj", args[0].Object);
+    const path_obj = args[0].Object.toString();
     const path = path_obj.chars;
 
     const file_stat = std.Io.Dir.cwd().statFile(v.io.system, path, .{ .follow_symlinks = true }) catch {
         return .Null;
     };
 
-    var stat_table = v.allocator.create(TableObj) catch unreachable;
-    stat_table.* = .{
-        .obj = .{ .obj_type = .Table, .next = null },
-        .fields = std.StringHashMap(Value).init(v.allocator),
-        .elements = .empty,
-    };
+    var stat_table = v.createTable() catch unreachable;
 
     stat_table.fields.put("size", .{ .Number = @intCast(file_stat.size) }) catch unreachable;
     stat_table.fields.put("mtime", .{ .Number = @intCast(file_stat.mtime.toMilliseconds()) }) catch unreachable;
@@ -51,8 +46,7 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     stat_table.fields.put("inode", .{ .Number = @intCast(file_stat.inode) }) catch unreachable;
     stat_table.fields.put("mode", .{ .Number = @intCast(@intFromEnum(file_stat.permissions)) }) catch unreachable;
 
-    const ns_str = v.allocator.create(ObjString) catch unreachable;
-    ns_str.* = .{ .obj = .{ .obj_type = .String, .next = null }, .chars = "Filetype" };
+    const ns_str = v.createString("FileType") catch unreachable;
 
     const kind_str: []const u8 = switch (file_stat.kind) {
         .file => "File",
@@ -61,16 +55,9 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         else => "Unknown",
     };
 
-    const name_str = v.allocator.create(ObjString) catch unreachable;
-    name_str.* = .{ .obj = .{ .obj_type = .String, .next = null }, .chars = kind_str };
+    const name_str = v.createString(kind_str) catch unreachable;
 
-    const kind_var = v.allocator.create(VariantObj) catch unreachable;
-    kind_var.* = .{
-        .obj = .{ .obj_type = .Variant, .next = null },
-        .namespace = ns_str,
-        .variant_name = name_str,
-        .payload = &.{},
-    };
+    const kind_var = v.createVariant(ns_str, name_str, &.{}) catch unreachable;
 
     stat_table.fields.put("type", .{ .Object = &kind_var.obj }) catch unreachable;
 

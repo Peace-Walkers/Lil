@@ -136,6 +136,36 @@ pub const VM = struct {
         return self.stack[self.stack_top];
     }
 
+    pub fn createString(self: *Self, chars: []const u8) !*ObjString {
+        const obj_str = try self.allocator.create(ObjString);
+        obj_str.* = .{
+            .obj = .{ .obj_type = .String, .next = null },
+            .chars = chars,
+        };
+        return obj_str;
+    }
+
+    pub fn createTable(self: *Self) !*TableObj {
+        const table_obj = try self.allocator.create(TableObj);
+        table_obj.* = .{
+            .obj = .{ .obj_type = .Table, .next = null },
+            .fields = std.StringHashMap(Value).init(self.allocator),
+            .elements = .empty,
+        };
+        return table_obj;
+    }
+
+    pub fn createVariant(self: *Self, namespace: *ObjString, name: *ObjString, payload: []Value) !*VariantObj {
+        const variant_obj = try self.allocator.create(VariantObj);
+        variant_obj.* = .{
+            .obj = .{ .obj_type = .Variant, .next = null },
+            .namespace = namespace,
+            .variant_name = name,
+            .payload = payload,
+        };
+        return variant_obj;
+    }
+
     fn readByte(self: *Self) u8 {
         var frame = self.currentFrame();
         const byte = frame.function.chunk.code.items[frame.ip];
@@ -179,18 +209,18 @@ pub const VM = struct {
 
                 switch (a_obj.obj_type) {
                     .String => {
-                        const string_a_obj: *ObjString = @fieldParentPtr("obj", a_obj);
+                        const string_a_obj = a_obj.toString();
                         const str_a = string_a_obj.chars;
 
-                        const string_b_obj: *ObjString = @fieldParentPtr("obj", b_obj);
+                        const string_b_obj = b_obj.toString();
                         const str_b = string_b_obj.chars;
 
                         return std.mem.eql(u8, str_a, str_b);
                     },
                     .Table => {
-                        const table_a_obj: *TableObj = @fieldParentPtr("obj", a_obj);
+                        const table_a_obj = a_obj.toTable();
 
-                        const table_b_obj: *TableObj = @fieldParentPtr("obj", b_obj);
+                        const table_b_obj = b_obj.toTable();
 
                         if (table_a_obj.elements.items.len != table_b_obj.elements.items.len)
                             return false;
@@ -217,8 +247,8 @@ pub const VM = struct {
                         return true;
                     },
                     .Variant => {
-                        const var_a_obj: *VariantObj = @fieldParentPtr("obj", a_obj);
-                        const var_b_obj: *VariantObj = @fieldParentPtr("obj", b_obj);
+                        const var_a_obj = a_obj.toVariant();
+                        const var_b_obj = b_obj.toVariant();
 
                         const a_namespace = var_a_obj.namespace;
                         const b_namespace = var_b_obj.namespace;
@@ -255,14 +285,14 @@ pub const VM = struct {
                         return true;
                     },
                     .Function => {
-                        const fn_a_obj: *FunctionObj = @fieldParentPtr("obj", a_obj);
-                        const fn_b_obj: *FunctionObj = @fieldParentPtr("obj", b_obj);
+                        const fn_a_obj = a_obj.toFunction();
+                        const fn_b_obj = b_obj.toFunction();
 
                         return fn_a_obj == fn_b_obj;
                     },
                     .Native => {
-                        const native_obj_a: *ObjNative = @fieldParentPtr("obj", a_obj);
-                        const native_obj_b: *ObjNative = @fieldParentPtr("obj", b_obj);
+                        const native_obj_a = a_obj.toNative();
+                        const native_obj_b = b_obj.toNative();
 
                         return native_obj_a.function == native_obj_b.function;
                     },
@@ -276,7 +306,7 @@ pub const VM = struct {
             std.debug.print("Runtime Error: Expected a function for lambda execution.\n", .{});
             return error.RuntimeError;
         }
-        const func: *FunctionObj = @fieldParentPtr("obj", lambda.Object);
+        const func = lambda.Object.toFunction();
 
         const starting_frame_count = self.frame_count;
 
@@ -355,7 +385,7 @@ pub const VM = struct {
                 },
                 .OP_DEFINE_GLOBAL => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
                     const value = self.pop();
@@ -363,7 +393,7 @@ pub const VM = struct {
                 },
                 .OP_SET_GLOBAL => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
                     if (!self.globals.contains(name)) {
@@ -376,7 +406,7 @@ pub const VM = struct {
                 },
                 .OP_GET_GLOBAL => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
                     if (self.globals.get(name)) |value| {
@@ -390,19 +420,14 @@ pub const VM = struct {
                     const array_count = self.readByte();
                     const dict_count = self.readByte();
 
-                    var table_obj = try self.allocator.create(TableObj);
-                    table_obj.* = .{
-                        .obj = .{ .obj_type = .Table, .next = null },
-                        .fields = std.StringHashMap(Value).init(self.allocator),
-                        .elements = .empty,
-                    };
+                    var table_obj = try self.createTable();
 
                     var i: usize = 0;
                     while (i < dict_count) : (i += 1) {
                         const value = self.pop();
                         const key_val = self.pop();
 
-                        const key_obj: *ObjString = @fieldParentPtr("obj", key_val.Object);
+                        const key_obj = key_val.Object.toString();
                         try table_obj.fields.put(key_obj.chars, value);
                     }
 
@@ -417,7 +442,7 @@ pub const VM = struct {
                 },
                 .OP_GET_PROPERTY => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const property_name = name_obj.chars;
 
                     const instance_val = self.pop();
@@ -427,7 +452,7 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
 
-                    const table: *TableObj = @fieldParentPtr("obj", instance_val.Object);
+                    const table = instance_val.Object.toTable();
 
                     if (table.fields.get(property_name)) |value| {
                         self.push(value);
@@ -438,7 +463,7 @@ pub const VM = struct {
                 },
                 .OP_SET_PROPRETY => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const property_name = name_obj.chars;
 
                     const value = self.pop();
@@ -449,7 +474,7 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
 
-                    const table: *TableObj = @fieldParentPtr("obj", instance_val.Object);
+                    const table = instance_val.Object.toTable();
 
                     try table.fields.put(property_name, value);
 
@@ -457,7 +482,7 @@ pub const VM = struct {
                 },
                 .OP_INVOKE => {
                     const methode_name_val = self.readConstant();
-                    const methode_name_obj: *ObjString = @fieldParentPtr("obj", methode_name_val.Object);
+                    const methode_name_obj = methode_name_val.Object.toString();
                     const method_name = methode_name_obj.chars;
 
                     const arg_count = self.readByte();
@@ -469,7 +494,7 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
 
-                    const table: *TableObj = @fieldParentPtr("obj", receiver.Object);
+                    const table = receiver.Object.toTable();
 
                     if (table.fields.get(method_name)) |methode_val| {
                         if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
@@ -477,7 +502,7 @@ pub const VM = struct {
                             return error.RuntimeError;
                         }
 
-                        const func: *FunctionObj = @fieldParentPtr("obj", methode_val.Object);
+                        const func = methode_val.Object.toFunction();
 
                         if (arg_count + 1 != func.arity) {
                             std.debug.print("Runtime Error: Expected {d} args but got {d}", .{ func.arity, arg_count + 1 });
@@ -637,7 +662,7 @@ pub const VM = struct {
 
                     switch (callee.Object.obj_type) {
                         .Function => {
-                            const func: *FunctionObj = @fieldParentPtr("obj", callee.Object);
+                            const func = callee.Object.toFunction();
 
                             if (arg_count != func.arity) {
                                 std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
@@ -657,7 +682,7 @@ pub const VM = struct {
                             self.frame_count += 1;
                         },
                         .Native => {
-                            const native_obj: *ObjNative = @fieldParentPtr("obj", callee.Object);
+                            const native_obj = callee.Object.toNative();
                             const args_slice = self.stack[self.stack_top - arg_count .. self.stack_top];
                             const result = native_obj.function(self, arg_count, args_slice.ptr);
 
@@ -682,7 +707,7 @@ pub const VM = struct {
                     const index: usize = @intCast(index_val.Number);
 
                     if (object_val == .Object and object_val.Object.obj_type == .Table) {
-                        const table: *TableObj = @fieldParentPtr("obj", object_val.Object);
+                        const table = object_val.Object.toTable();
 
                         if (index >= table.elements.items.len) {
                             std.debug.print("Runtime Error: Array index out of bounds.\n", .{});
@@ -690,7 +715,7 @@ pub const VM = struct {
                         }
                         self.push(table.elements.items[index]);
                     } else if (object_val == .Object and object_val.Object.obj_type == .String) {
-                        const string: *ObjString = @fieldParentPtr("obj", object_val.Object);
+                        const string = object_val.Object.toString();
 
                         if (index >= string.chars.len) {
                             std.debug.print("Runtime Error: String index out of bounds.\n", .{});
@@ -702,11 +727,7 @@ pub const VM = struct {
                         var char_slice = try self.allocator.alloc(u8, 1);
                         char_slice[0] = char;
 
-                        var new_str = try self.allocator.create(ObjString);
-                        new_str.* = .{
-                            .obj = .{ .obj_type = .String, .next = null },
-                            .chars = char_slice,
-                        };
+                        var new_str = try self.createString(char_slice);
 
                         self.push(.{ .Object = &new_str.obj });
                     } else {
@@ -723,7 +744,7 @@ pub const VM = struct {
                     const target = self.peek(0);
 
                     const name_val = frame.function.chunk.constants.items[name_idx];
-                    const name_str_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_str_obj = name_val.Object.toString();
                     const name_str = name_str_obj.chars;
 
                     if (std.mem.eql(u8, name_str, "_")) {
@@ -736,7 +757,7 @@ pub const VM = struct {
                         continue;
                     }
 
-                    const variant_obj: *VariantObj = @fieldParentPtr("obj", target.Object);
+                    const variant_obj = target.Object.toVariant();
                     if (!std.mem.eql(u8, variant_obj.variant_name.chars, name_str)) {
                         self.push(.{ .Boolean = false });
                         continue;
@@ -744,7 +765,7 @@ pub const VM = struct {
 
                     if (has_ns == 1) {
                         const ns_val = frame.function.chunk.constants.items[ns_idx];
-                        const ns_str_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
+                        const ns_str_obj = ns_val.Object.toString();
                         const ns_str = ns_str_obj.chars;
 
                         if (variant_obj.namespace) |v_ns| {
@@ -770,7 +791,7 @@ pub const VM = struct {
 
                     if (binding_count > 0) {
                         const target = self.peek(0);
-                        const variant_obj: *VariantObj = @fieldParentPtr("obj", target.Object);
+                        const variant_obj = target.Object.toVariant();
 
                         for (variant_obj.payload) |val| {
                             self.push(val);
@@ -782,8 +803,8 @@ pub const VM = struct {
                     const name_val = self.readConstant();
                     const arg_count = self.readByte();
 
-                    const ns_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const ns_obj = ns_val.Object.toString();
+                    const name_obj = name_val.Object.toString();
 
                     var payload = try self.allocator.alloc(Value, arg_count);
 

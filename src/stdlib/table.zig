@@ -10,7 +10,7 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+    const table = args[0].Object.toTable();
 
     if (arg_count == 2) {
         const v: *VM = @ptrCast(@alignCast(vm));
@@ -27,7 +27,7 @@ pub fn pop(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+    const table = args[0].Object.toTable();
 
     if (arg_count == 1) {
         if (table.elements.pop()) |result| {
@@ -46,15 +46,10 @@ pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+    const table = args[0].Object.toTable();
     const lambda = args[1];
 
-    const new_table = v.allocator.create(TableObj) catch unreachable;
-    new_table.* = .{
-        .obj = .{ .obj_type = .Table, .next = null },
-        .fields = std.StringHashMap(Value).init(v.allocator),
-        .elements = .empty,
-    };
+    const new_table = v.createTable() catch unreachable;
 
     for (table.elements.items) |elem| {
         const result = v.executeLambda(lambda, elem) catch {
@@ -75,15 +70,10 @@ pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+    const table = args[0].Object.toTable();
     const lambda = args[1];
 
-    const new_table = v.allocator.create(TableObj) catch unreachable;
-    new_table.* = .{
-        .obj = .{ .obj_type = .Table, .next = null },
-        .fields = std.StringHashMap(Value).init(v.allocator),
-        .elements = .empty,
-    };
+    const new_table = v.createTable() catch unreachable;
 
     for (table.elements.items) |elem| {
         const condition_res = v.executeLambda(lambda, elem) catch {
@@ -105,7 +95,7 @@ pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     }
 
-    const table: *TableObj = @fieldParentPtr("obj", args[0].Object);
+    const table = args[0].Object.toTable();
 
     return .{ .Number = @intCast(table.elements.items.len) };
 }

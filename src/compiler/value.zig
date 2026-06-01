@@ -36,14 +36,34 @@ pub const Obj = struct {
     obj_type: ObjType,
     next: ?*Obj,
 
+    pub fn toString(self: *Obj) *ObjString {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toTable(self: *Obj) *TableObj {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toFunction(self: *Obj) *FunctionObj {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toVariant(self: *Obj) *VariantObj {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toNative(self: *Obj) *ObjNative {
+        return @fieldParentPtr("obj", self);
+    }
+
     pub fn print(self: *Obj, indent: usize) void {
         switch (self.obj_type) {
             .String => {
-                const string_obj: *ObjString = @fieldParentPtr("obj", self);
+                const string_obj = self.toString();
                 std.debug.print("\"{s}\"", .{string_obj.chars});
             },
             .Table => {
-                const table_obj: *TableObj = @fieldParentPtr("obj", self);
+                const table_obj = self.toTable();
 
                 if (table_obj.elements.items.len == 0 and table_obj.fields.count() == 0) {
                     std.debug.print("Table {{}}", .{});
@@ -78,7 +98,7 @@ pub const Obj = struct {
             .Function => std.debug.print("<Fn>", .{}),
             .Variant => std.debug.print("<Variant>", .{}),
             .Native => {
-                const native_obj: *ObjNative = @fieldParentPtr("obj", self);
+                const native_obj = self.toNative();
                 std.debug.print("<NativeFn {s}>", .{native_obj.name});
             },
         }
