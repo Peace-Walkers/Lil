@@ -395,6 +395,8 @@ pub const Compiler = struct {
                 const name_idx = try self.emitStringConstant(s.name);
                 try self.emitOp(.OP_SET_PROPRETY);
                 try self.emitByte(name_idx);
+
+                try self.emitOp(.OP_POP);
             },
             .ExpressionStatement => |e| {
                 try self.compile(e.*);

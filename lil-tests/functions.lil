@@ -42,4 +42,4 @@ let doubled = ages.map(|e| e * 2)
 io::print(ages)
 io::print(doubled)
 
-io::print(table)
+io::println(table)

@@ -27,6 +27,12 @@ const CallFrame = struct {
     slot_offset: usize,
 };
 
+pub const VmIo = struct {
+    system: std.Io,
+    in: *std.Io.Reader,
+    out: *std.Io.Writer,
+};
+
 pub const VM = struct {
     const Self = @This();
 
@@ -44,10 +50,11 @@ pub const VM = struct {
 
     globals: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
+    io: VmIo,
 
     halt_frame_count: ?usize = null,
 
-    pub fn init(allocator: std.mem.Allocator) !Self {
+    pub fn init(allocator: std.mem.Allocator, io: VmIo) !Self {
         var vm = Self{
             .frames = undefined,
             .stack = undefined,
@@ -58,6 +65,7 @@ pub const VM = struct {
             .string_methods = std.StringHashMap(NativeFn).init(allocator),
             .table_methods = std.StringHashMap(NativeFn).init(allocator),
             .halt_frame_count = null,
+            .io = io,
         };
 
         var io_module = try allocator.create(TableObj);
@@ -67,6 +75,23 @@ pub const VM = struct {
             .elements = .empty,
         };
 
+        var fs_module = try allocator.create(TableObj);
+        fs_module.* = .{
+            .obj = .{ .obj_type = .Table, .next = null },
+            .fields = std.StringHashMap(Value).init(allocator),
+            .elements = .empty,
+        };
+
+        var fs_stat_native = try allocator.create(ObjNative);
+        fs_stat_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.fs.stat,
+            .name = "stat",
+        };
+
+        try fs_module.fields.put("stat", .{ .Object = &fs_stat_native.obj });
+        try vm.globals.put("fs", .{ .Object = &fs_module.obj });
+
         var print_native = try allocator.create(ObjNative);
         print_native.* = .{
             .obj = .{ .obj_type = .Native, .next = null },
@@ -74,6 +99,14 @@ pub const VM = struct {
             .name = "print",
         };
 
+        var read_native = try allocator.create(ObjNative);
+        read_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.io.read,
+            .name = "read",
+        };
+
+        try io_module.fields.put("read", .{ .Object = &read_native.obj });
         try io_module.fields.put("print", .{ .Object = &print_native.obj });
         try vm.globals.put("io", .{ .Object = &io_module.obj });
 
@@ -300,7 +333,7 @@ pub const VM = struct {
         self.frames[0] = .{
             .function = function,
             .ip = 0,
-            .slot_offset = 0,
+            .slot_offset = self.stack_top - 1,
         };
         self.frame_count = 1;
         return self.run();
@@ -488,6 +521,13 @@ pub const VM = struct {
                     const b = self.pop();
                     const a = self.pop();
 
+                    if (a != .Number or b != .Number) {
+                        a.print(0);
+                        b.print(0);
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
                     const result = a.Number + b.Number;
                     self.push(.{ .Number = result });
                 },
@@ -520,6 +560,17 @@ pub const VM = struct {
                     }
 
                     self.push(.{ .Boolean = a.Number < b.Number });
+                },
+                .OP_GREATER => {
+                    const b = self.pop();
+                    const a = self.pop();
+
+                    if (a != .Number or b != .Number) {
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    self.push(.{ .Boolean = a.Number > b.Number });
                 },
                 .OP_EQUAL => {
                     const a = self.pop();

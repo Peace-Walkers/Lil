@@ -1,0 +1,10 @@
+let path = "build.zig"
+
+let content = io::read(path)
+
+io::println(fs::stat(path))
+
+io::println("\n========[CONTENT]========\n")
+
+io::println(content.content)
+

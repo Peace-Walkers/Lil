@@ -13,8 +13,10 @@ const stdlib_sources = [_][]const u8{
     // @embedFile("stdlib_lil/string.lil"),
 };
 
-pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
-    var vm = try VM.init(allocator);
+pub const VmIo = @import("runtime/vm.zig").VmIo;
+
+pub fn interpret(io: VmIo, allocator: std.mem.Allocator, source: []const u8) !void {
+    var vm = try VM.init(allocator, io);
     defer vm.deinit();
 
     for (stdlib_sources) |std_source| {
