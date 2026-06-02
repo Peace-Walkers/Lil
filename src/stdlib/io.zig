@@ -37,8 +37,7 @@ pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1 or args[0] != .Object or args[0].Object.obj_type != .String) {
-        std.debug.print("Runtime Error: io::read expects exactly 1 string argument (the path).\n", .{});
-        return .Null;
+        return v.createResultErr("io::read expect exactly 1 string argument (the path).") catch unreachable;
     }
 
     const path_obj = args[0].Object.toString();
@@ -52,8 +51,7 @@ pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         @memcpy(content_slice, temp_buf[0..read_len]);
     } else {
         content_slice = std.Io.Dir.cwd().readFileAlloc(v.io.system, path, v.allocator, .unlimited) catch {
-            std.debug.print("Runtime Error: Failed to read file.\n", .{});
-            return .Null;
+            return v.createResultErr("Failed to read file.") catch unreachable;
         };
     }
 
@@ -64,5 +62,5 @@ pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     result_table.fields.put("content", .{ .Object = &content_str.obj }) catch unreachable;
     result_table.fields.put("cursor", .{ .Number = @intCast(content_slice.len) }) catch unreachable;
 
-    return .{ .Object = &result_table.obj };
+    return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
 }

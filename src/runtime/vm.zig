@@ -175,7 +175,7 @@ pub const VM = struct {
         return variant_obj;
     }
 
-    pub fn creteResultOk(self: *Self, payload: Value) !Value {
+    pub fn createResultOk(self: *Self, payload: Value) !Value {
         const ns_str = try self.createString("Result");
         const name_str = try self.createString("Ok");
 
@@ -183,12 +183,19 @@ pub const VM = struct {
         payload_slice[0] = payload;
 
         const variant_obj = try self.createVariant(ns_str, name_str, payload_slice);
-        return .{ .Object = &variant_obj };
+        return .{ .Object = &variant_obj.obj };
     }
 
     pub fn createResultErr(self: *Self, error_msg: []const u8) !Value {
-        //TODO
+        const ns_str = try self.createString("Result");
+        const name_str = try self.createString("Err");
+        const err_str = try self.createString(error_msg);
 
+        const payload_slice = try self.allocator.alloc(Value, 1);
+
+        payload_slice[0] = .{ .Object = &err_str.obj };
+        const variant_obj = try self.createVariant(ns_str, name_str, payload_slice);
+        return .{ .Object = &variant_obj.obj };
     }
 
     fn readByte(self: *Self) u8 {
@@ -584,7 +591,7 @@ pub const VM = struct {
                         .Variant => {
                             const variant = receiver.Object.toVariant();
                             if (variant.namespace) |namespace| {
-                                if (std.mem.eql(u8, namespace, "Result")) {
+                                if (std.mem.eql(u8, namespace.chars, "Result")) {
                                     if (self.result_methods.get(method_name)) |native_fn| {
                                         const total_args = arg_count + 1;
                                         const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
@@ -597,7 +604,11 @@ pub const VM = struct {
                                     }
                                 }
                             } else {
-                                std.debug.print("Runtime Error: Variant '{s}' does not support methods.\n", .{variant.namespace.chars});
+                                if (variant.namespace) |namespace| {
+                                    std.debug.print("Runtime Error: Variant '{s}' does not support methods.\n", .{namespace.chars});
+                                } else {
+                                    std.debug.print("Runtime Error: Variant '{s}' does not support methods.\n", .{variant.variant_name.chars});
+                                }
                                 return error.RuntimeError;
                             }
                         },
