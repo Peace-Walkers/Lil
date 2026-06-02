@@ -759,7 +759,7 @@ pub const VM = struct {
                         .Function => {
                             const func = callee.Object.toFunction();
 
-                            if (arg_count != func.arity) {
+                            if (func.arity != 255 and arg_count != func.arity) {
                                 std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
                                 return error.RuntimeError;
                             }

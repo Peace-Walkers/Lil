@@ -7,7 +7,8 @@ const TableObj = value_mod.TableObj;
 const Value = value_mod.Value;
 
 pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
-    _ = vm;
+    // _ = vm;
+    const v: *VM = @ptrCast(@alignCast(vm));
     if (arg_count == 0) {
         std.debug.print("\n", .{});
         return .Null;
@@ -18,15 +19,41 @@ pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     if (val == .Object and val.Object.obj_type == .String) {
         const string_obj = val.Object.toString();
 
+        var mark: std.ArrayList(usize) = .empty;
+
         var i: usize = 0;
         while (i < string_obj.chars.len) : (i += 1) {
-            if (string_obj.chars[i] == '\\' and i + 1 < string_obj.chars.len and string_obj.chars[i + 1] == 'n') {
-                std.debug.print("\n", .{});
-                i += 1;
-            } else {
-                std.debug.print("{c}", .{string_obj.chars[i]});
+            if (string_obj.chars[i] == '{' and i + 1 < string_obj.chars.len) {
+                if (string_obj.chars[i + 1] == '}') {
+                    mark.append(v.allocator, i) catch unreachable;
+                    i += 1;
+                }
             }
         }
+
+        if (mark.items.len != arg_count - 1)
+            return .Null;
+
+        if (mark.items.len == 0) {
+            var last_m: usize = 0;
+            for (mark.items, 0..) |m, c| {
+                std.debug.print("{s}", .{string_obj.chars[last_m..m]});
+                args[c + 1].print(0);
+                last_m = m;
+            }
+        } else {
+            val.print(0);
+        }
+
+        // var i: usize = 0;
+        // while (i < string_obj.chars.len) : (i += 1) {
+        //     if (string_obj.chars[i] == '\\' and i + 1 < string_obj.chars.len and string_obj.chars[i + 1] == 'n') {
+        //         std.debug.print("\n", .{});
+        //         i += 1;
+        //     } else {
+        //         std.debug.print("{c}", .{string_obj.chars[i]});
+        //     }
+        // }
     } else {
         args[0].print(0);
     }

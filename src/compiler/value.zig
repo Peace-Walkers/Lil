@@ -60,7 +60,7 @@ pub const Obj = struct {
         switch (self.obj_type) {
             .String => {
                 const string_obj = self.toString();
-                std.debug.print("\"{s}\"", .{string_obj.chars});
+                std.debug.print("{s}", .{string_obj.chars});
             },
             .Table => {
                 const table_obj = self.toTable();
