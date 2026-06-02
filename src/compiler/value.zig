@@ -128,6 +128,7 @@ pub const FunctionObj = struct {
     arity: usize,
     chunk: Chunk,
     name: ?*ObjString,
+    can_fail: bool,
 };
 
 pub const VariantObj = struct {

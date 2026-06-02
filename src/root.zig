@@ -40,6 +40,7 @@ pub fn interpret(io: VmIo, allocator: std.mem.Allocator, source: []const u8) !vo
             .arity = 0,
             .chunk = core_chunk,
             .name = null,
+            .can_fail = true,
         };
 
         try vm.interpret(core_function);
@@ -64,6 +65,7 @@ pub fn interpret(io: VmIo, allocator: std.mem.Allocator, source: []const u8) !vo
         .arity = 0,
         .chunk = chunk,
         .name = null,
+        .can_fail = true,
     };
 
     try vm.interpret(script_function);

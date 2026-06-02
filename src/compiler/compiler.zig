@@ -172,6 +172,7 @@ pub const Compiler = struct {
             .arity = fn_decl.params.len,
             .chunk = Chunk.init(self.allocator),
             .name = name_obj,
+            .can_fail = if (@hasField(@TypeOf(fn_decl), "can_fail")) fn_decl.can_fail else false,
         };
 
         var fn_comp = Compiler.init(self.allocator, &func_obj.chunk);

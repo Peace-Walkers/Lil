@@ -681,6 +681,25 @@ pub const VM = struct {
                 },
                 .OP_RETURN => {
                     const result = self.pop();
+                    var final_result = result;
+                    const current_frame = self.frames[self.frame_count - 1];
+
+                    if (current_frame.function.can_fail) {
+                        var is_already_result = false;
+
+                        if (result == .Object and result.Object.obj_type == .Variant) {
+                            const variant = result.Object.toVariant();
+                            if (variant.namespace) |namespace| {
+                                if (std.mem.eql(u8, namespace.chars, "Result")) {
+                                    is_already_result = true;
+                                }
+                            }
+                        }
+                        if (!is_already_result) {
+                            final_result = self.createResultOk(result) catch unreachable;
+                        }
+                    }
+
                     self.frame_count -= 1;
 
                     self.stack_top = self.frames[self.frame_count].slot_offset;
@@ -700,7 +719,7 @@ pub const VM = struct {
                     }
 
                     self.stack_top = self.frames[self.frame_count].slot_offset;
-                    self.push(result);
+                    self.push(final_result);
                 },
                 .OP_POP => {
                     _ = self.pop();
