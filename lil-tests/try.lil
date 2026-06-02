@@ -1,0 +1,14 @@
+
+fn! info_read(path):
+  let content = io::read(path)?
+  let infos = fs::stat(path)
+  let infos = {
+      file: content,
+      infos: infos,
+  }
+  return infos
+
+
+let build_zig = info_read("build.zigg")
+
+io::println(build_zig)

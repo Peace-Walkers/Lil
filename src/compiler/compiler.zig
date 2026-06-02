@@ -26,6 +26,8 @@ pub const Compiler = struct {
     local_count: usize,
     scope_depth: usize,
 
+    can_fail_context: bool = true,
+
     known_globals: std.StringHashMap(bool),
     types_registry: std.StringHashMap([]const ast.Variant),
 
@@ -173,6 +175,12 @@ pub const Compiler = struct {
         };
 
         var fn_comp = Compiler.init(self.allocator, &func_obj.chunk);
+
+        if (@hasField(@TypeOf(fn_decl), "can_fail")) {
+            fn_comp.can_fail_context = fn_decl.can_fail;
+        } else {
+            fn_comp.can_fail_context = false;
+        }
 
         fn_comp.locals[0] = .{ .name = "", .depth = 0, .is_mut = false };
         fn_comp.local_count = 1;
@@ -565,6 +573,11 @@ pub const Compiler = struct {
                 try self.emitByte(@intCast(call.arguments.len));
             },
             .Try => |t| {
+                if (!self.can_fail_context) {
+                    std.debug.print("Compile Error: Cannot use '?' inside a normal function. Use 'fn!' instead.\n", .{});
+                    return error.CompileError;
+                }
+
                 try self.compile(t.*);
                 try self.emitOp(.OP_TRY);
             },

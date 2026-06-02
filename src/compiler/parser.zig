@@ -129,7 +129,7 @@ pub const Parser = struct {
         } };
     }
 
-    fn parse_fn(self: *Self) ParseError!ast.Node {
+    fn parse_fn(self: *Self, can_fail: bool) ParseError!ast.Node {
         try self.consume(.Identifier, "Expected function name after 'fn' keyword.");
         const name = self.previous.lexeme;
 
@@ -158,6 +158,7 @@ pub const Parser = struct {
             .name = name,
             .params = try params.toOwnedSlice(self.arena),
             .body = heap_body,
+            .can_fail = can_fail,
         } };
     }
 
@@ -459,7 +460,10 @@ pub const Parser = struct {
 
     fn parse_decl(self: *Self) !ast.Node {
         if (self.match(.Type)) return try self.patse_type();
-        if (self.match(.Fn)) return try self.parse_fn();
+        if (self.match(.Fn)) {
+            const can_fail = self.match(.Exclamationmark);
+            return try self.parse_fn(can_fail);
+        }
         if (self.match(.If)) {
             return try self.parse_if();
         }
@@ -576,7 +580,10 @@ pub const Parser = struct {
         if (self.match(.Pipe)) return try self.parse_lambda();
         if (self.match(.LBrace)) return try self.parse_table();
 
-        if (self.match(.Fn)) return try self.parse_fn();
+        if (self.match(.Fn)) {
+            const can_fail = self.match(.Exclamationmark);
+            return try self.parse_fn(can_fail);
+        }
 
         if (self.match(.LParen)) {
             const expr = try self.parse_expr();

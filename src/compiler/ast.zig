@@ -71,6 +71,7 @@ pub const Node = union(enum) {
         name: []const u8,
         params: []const []const u8,
         body: *Node,
+        can_fail: bool,
     },
 
     ReturnStatement: struct {
