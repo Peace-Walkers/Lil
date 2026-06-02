@@ -262,6 +262,10 @@ pub const Parser = struct {
                     .object = object_ptr,
                     .index = index_ptr,
                 } };
+            } else if (self.match(.QuestionMark)) {
+                const expr_ptr = try self.arena.create(ast.Node);
+                expr_ptr.* = expr;
+                expr = .{ .Try = expr_ptr };
             } else {
                 break;
             }

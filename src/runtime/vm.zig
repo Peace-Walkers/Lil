@@ -771,6 +771,44 @@ pub const VM = struct {
                         },
                     }
                 },
+                .OP_TRY => {
+                    const top_val = self.peek(0);
+
+                    if (top_val != .Object or top_val.Object.obj_type != .Variant) {
+                        std.debug.print("Runtime Error: '?' operator expects a Result variant.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const variant = top_val.Object.toVariant();
+                    if (variant.namespace) |namespace| {
+                        if (!std.mem.eql(u8, namespace.chars, "Result")) {
+                            std.debug.print("Runtime Error: '?' operator expects a Result variant.\n", .{});
+                            return error.RuntimeError;
+                        }
+                    } else {
+                        std.debug.print("Runtime Error: '?' operator expects a Result variant.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    if (std.mem.eql(u8, variant.variant_name.chars, "Ok")) {
+                        _ = self.pop();
+                        self.push(variant.payload[0]);
+                    } else {
+                        if (self.frame_count == 1) {
+                            //INFO: main script case
+                            const msg = variant.payload[0].Object.toString().chars;
+                            std.debug.print("Unhandled error in main : {s}\n", .{msg});
+                            return error.RuntimeError;
+                        } else {
+                            //INFO: inside a function case
+                            const err_result = self.pop();
+
+                            self.frame_count -= 1;
+                            self.stack_top = self.frames[self.frame_count].slot_offset;
+                            self.push(err_result);
+                        }
+                    }
+                },
                 .OP_GET_INDEX => {
                     const index_val = self.pop();
                     const object_val = self.pop();

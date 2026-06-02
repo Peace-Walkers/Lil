@@ -1,6 +1,6 @@
 let path = "build.zig"
 
-let content = io::read(path).unwrap()
+let content = io::read(path)?
 
 let stat = fs::stat(path)
 io::println(stat)

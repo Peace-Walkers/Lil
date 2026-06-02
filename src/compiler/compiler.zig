@@ -564,6 +564,10 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_CALL);
                 try self.emitByte(@intCast(call.arguments.len));
             },
+            .Try => |t| {
+                try self.compile(t.*);
+                try self.emitOp(.OP_TRY);
+            },
             .Index => |idx| {
                 try self.compile(idx.object.*);
                 try self.compile(idx.index.*);

@@ -82,6 +82,8 @@ pub const Node = union(enum) {
         arguments: []const Node,
     },
 
+    Try: *Node, // '?' operation for error propagation
+
     Get: struct {
         object: *Node,
         name: []const u8,
