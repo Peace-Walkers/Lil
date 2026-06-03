@@ -11,6 +11,7 @@ pub const OpCode = enum(u8) {
     OP_GET_LOCAL,
     OP_SET_LOCAL,
 
+    OP_SET_PROPRETY,
     OP_GET_PROPERTY,
     OP_INVOKE,
 
@@ -27,6 +28,7 @@ pub const OpCode = enum(u8) {
     OP_GREATER,
     OP_LESS,
 
+    OP_TRY,
     OP_CALL,
     OP_JUMP,
     OP_JUMP_IF_FALSE,

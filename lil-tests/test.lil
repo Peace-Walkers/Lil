@@ -1,0 +1,58 @@
+let a = 15
+let b = 9
+
+mut ages = {10, 5, 3}
+
+io::println("before:")
+io::println(ages)
+
+ages.push(b)
+ages.push(a)
+
+io::println("after:")
+io::println(ages)
+
+let doubled = ages.map(|a| a * 2)
+
+io::println("doubled:")
+io::println(doubled)
+
+let filtred = ages.map(|a| a *2).filter(|a| a < 15)
+
+io::println("doubled filtred:")
+io::println(filtred)
+
+io::println("je test des trucs")
+
+io::print(doubled.len() - filtred.len())
+io::println(" person are older than 15")
+
+io::println("filtred before pop: ")
+io::println(filtred)
+
+let last = filtred.pop()
+
+io::println("filtred after pop: ")
+io::println(filtred)
+
+io::print("last: ")
+io::println(last)
+
+
+#TODO: add Result variant and it associated methode (is_ok(), is_err(), unwrap())
+
+let res = io::read("oui.txt") # return result
+
+if let Ok(r) = res: #unwraping result
+  io::println(r)
+
+#or unwraping directly
+
+let res = io::read("oui.txt")? #we are in the main function so if error is returned this cause a runtime error
+io::println(res )
+
+#now how to know if a function can throw an error
+#nice question
+#this is the syntax:
+!fn my_read(filename):
+  return io::read(filename)? # error will be upstreamed

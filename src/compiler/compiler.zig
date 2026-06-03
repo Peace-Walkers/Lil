@@ -1,5 +1,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const stdlib = @import("../stdlib/stdlib.zig");
+
 const chunk_mod = @import("chunk.zig");
 const Opcode = chunk_mod.OpCode;
 const Chunk = chunk_mod.Chunk;
@@ -23,6 +25,8 @@ pub const Compiler = struct {
     locals: [256]Local,
     local_count: usize,
     scope_depth: usize,
+
+    can_fail_context: bool = true,
 
     known_globals: std.StringHashMap(bool),
     types_registry: std.StringHashMap([]const ast.Variant),
@@ -154,10 +158,12 @@ pub const Compiler = struct {
     }
 
     fn compileFunctionBody(self: *Self, fn_decl: anytype) !void {
+        const is_lambda = !@hasField(@TypeOf(fn_decl), "name");
+
         const name_obj = try self.allocator.create(ObjString);
         name_obj.* = .{
             .obj = .{ .obj_type = .String, .next = null },
-            .chars = fn_decl.name,
+            .chars = if (is_lambda) "<lambda>" else fn_decl.name,
         };
 
         var func_obj = try self.allocator.create(FunctionObj);
@@ -166,9 +172,16 @@ pub const Compiler = struct {
             .arity = fn_decl.params.len,
             .chunk = Chunk.init(self.allocator),
             .name = name_obj,
+            .can_fail = if (@hasField(@TypeOf(fn_decl), "can_fail")) fn_decl.can_fail else false,
         };
 
         var fn_comp = Compiler.init(self.allocator, &func_obj.chunk);
+
+        if (@hasField(@TypeOf(fn_decl), "can_fail")) {
+            fn_comp.can_fail_context = fn_decl.can_fail;
+        } else {
+            fn_comp.can_fail_context = false;
+        }
 
         fn_comp.locals[0] = .{ .name = "", .depth = 0, .is_mut = false };
         fn_comp.local_count = 1;
@@ -184,10 +197,15 @@ pub const Compiler = struct {
         }
 
         try fn_comp.compile(fn_decl.body.*);
-        const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
-        try fn_comp.emitOp(.OP_CONSTANT);
-        try fn_comp.emitByte(zero_idx);
-        try fn_comp.emitOp(.OP_RETURN);
+
+        if (is_lambda) {
+            try fn_comp.emitOp(.OP_RETURN);
+        } else {
+            const zero_idx = try fn_comp.current_chunk.addConstant(.{ .Number = 0 });
+            try fn_comp.emitOp(.OP_CONSTANT);
+            try fn_comp.emitByte(zero_idx);
+            try fn_comp.emitOp(.OP_RETURN);
+        }
 
         const func_idx = try self.current_chunk.addConstant(.{ .Object = &func_obj.obj });
         try self.emitOp(.OP_CONSTANT);
@@ -280,25 +298,58 @@ pub const Compiler = struct {
                         std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ v.namespace, v.variant });
                         return error.CompileError;
                     }
+
+                    for (v.arguments) |arg| {
+                        try self.compile(arg);
+                    }
+
+                    const ns_idx = try self.emitStringConstant(v.namespace);
+                    const name_idx = try self.emitStringConstant(v.variant);
+
+                    try self.emitOp(.OP_BUILD_VARIANT);
+                    try self.emitByte(ns_idx);
+                    try self.emitByte(name_idx);
+                    try self.emitByte(@intCast(v.arguments.len));
                 } else {
-                    std.debug.print("Compile Error: Undefined type '{s}'.\n", .{v.namespace});
-                    return error.CompileError;
+                    const ns_idx = try self.emitStringConstant(v.namespace);
+                    try self.emitOp(.OP_GET_GLOBAL);
+                    try self.emitByte(ns_idx);
+
+                    const func_idx = try self.emitStringConstant(v.variant);
+                    try self.emitOp(.OP_GET_PROPERTY);
+                    try self.emitByte(func_idx);
+
+                    for (v.arguments) |arg| {
+                        try self.compile(arg);
+                    }
+
+                    try self.emitOp(.OP_CALL);
+                    try self.emitByte(@intCast(v.arguments.len));
                 }
-
-                for (v.arguments) |arg| {
-                    try self.compile(arg);
-                }
-
-                const ns_idx = try self.emitStringConstant(v.namespace);
-                const name_idx = try self.emitStringConstant(v.variant);
-
-                try self.emitOp(.OP_BUILD_VARIANT);
-                try self.emitByte(ns_idx);
-                try self.emitByte(name_idx);
-                try self.emitByte(@intCast(v.arguments.len));
             },
             .String => |s| {
-                const str_idx = try self.emitStringConstant(s);
+                var unescaped: std.ArrayList(u8) = .empty;
+                defer unescaped.deinit(self.allocator);
+
+                var i: usize = 0;
+                while (i < s.len) : (i += 1) {
+                    if (s[i] == '\\' and i + 1 < s.len) {
+                        switch (s[i + 1]) {
+                            'n' => try unescaped.append(self.allocator, '\n'),
+                            'r' => try unescaped.append(self.allocator, '\r'),
+                            't' => try unescaped.append(self.allocator, '\t'),
+                            '\\' => try unescaped.append(self.allocator, '\\'),
+                            '"' => try unescaped.append(self.allocator, '"'),
+                            else => try unescaped.append(self.allocator, s[i + 1]),
+                        }
+                        i += 1;
+                    } else {
+                        try unescaped.append(self.allocator, s[i]);
+                    }
+                }
+
+                const final_str = try self.allocator.dupe(u8, unescaped.items);
+                const str_idx = try self.emitStringConstant(final_str);
                 try self.emitOp(.OP_CONSTANT);
                 try self.emitByte(str_idx);
             },
@@ -312,6 +363,7 @@ pub const Compiler = struct {
                     .Star => try self.emitOp(.OP_MULTIPLY),
                     .Slash => try self.emitOp(.OP_DIVIDE),
                     .EqualsEquals => try self.emitOp(.OP_EQUAL),
+                    .Less => try self.emitOp(.OP_LESS),
                     else => {
                         std.debug.print("Unsupported operator : {s}\n", .{@tagName(b.operator)});
                         return error.UnsupportedOperator;
@@ -365,6 +417,20 @@ pub const Compiler = struct {
                 }
 
                 self.patchJump(else_jump);
+            },
+            .Set => |s| {
+                try self.compile(s.object.*);
+                try self.compile(s.value.*);
+
+                const name_idx = try self.emitStringConstant(s.name);
+                try self.emitOp(.OP_SET_PROPRETY);
+                try self.emitByte(name_idx);
+
+                try self.emitOp(.OP_POP);
+            },
+            .ExpressionStatement => |e| {
+                try self.compile(e.*);
+                try self.emitOp(.OP_POP);
             },
             .MatchExpression => |m| {
                 try self.compile(m.target.*);
@@ -471,6 +537,9 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_DEFINE_GLOBAL);
                 try self.emitByte(name_idx);
             },
+            .Lambda => |lm| {
+                try self.compileFunctionBody(lm);
+            },
             .ReturnStatement => |ret| {
                 if (ret.value) |val| {
                     try self.compile(val.*);
@@ -504,14 +573,20 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_CALL);
                 try self.emitByte(@intCast(call.arguments.len));
             },
+            .Try => |t| {
+                if (!self.can_fail_context) {
+                    std.debug.print("Compile Error: Cannot use '?' inside a normal function. Use 'fn!' instead.\n", .{});
+                    return error.CompileError;
+                }
+
+                try self.compile(t.*);
+                try self.emitOp(.OP_TRY);
+            },
             .Index => |idx| {
                 try self.compile(idx.object.*);
                 try self.compile(idx.index.*);
 
                 try self.emitOp(.OP_GET_INDEX);
-            },
-            else => {
-                std.debug.print("Unsupported node: {s}\n", .{@tagName(node)});
             },
         }
     }

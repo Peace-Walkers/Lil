@@ -27,6 +27,7 @@ pub const Node = union(enum) {
     String: []const u8,
     Identifier: []const u8,
     Boolean: bool,
+    ExpressionStatement: *Node,
 
     Root: struct {
         statements: []Node,
@@ -70,6 +71,7 @@ pub const Node = union(enum) {
         name: []const u8,
         params: []const []const u8,
         body: *Node,
+        can_fail: bool,
     },
 
     ReturnStatement: struct {
@@ -80,6 +82,8 @@ pub const Node = union(enum) {
         callee: *Node,
         arguments: []const Node,
     },
+
+    Try: *Node, // '?' operation for error propagation
 
     Get: struct {
         object: *Node,
@@ -121,6 +125,12 @@ pub const Node = union(enum) {
     Lambda: struct {
         params: []const []const u8,
         body: *Node,
+    },
+
+    Set: struct {
+        object: *Node,
+        name: []const u8,
+        value: *Node,
     },
 
     Index: struct {
@@ -343,6 +353,9 @@ pub const Node = union(enum) {
                 }
                 std.debug.print("|\n", .{});
                 lambda.body.dump(indent + 1, true, child_mask);
+            },
+            else => {
+                std.debug.print("[{}]", @tagName(self));
             },
         }
     }

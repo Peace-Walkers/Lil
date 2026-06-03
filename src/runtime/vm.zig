@@ -8,7 +8,11 @@ const ObjString = value_mod.ObjString;
 const FunctionObj = value_mod.FunctionObj;
 const TableObj = value_mod.TableObj;
 const VariantObj = value_mod.VariantObj;
+const ObjNative = value_mod.ObjNative;
+const NativeFn = value_mod.NativeFn;
 const debug = @import("../compiler/debug.zig");
+
+const stdlib = @import("../stdlib/stdlib.zig");
 
 pub const VmError = error{
     CompileError,
@@ -23,6 +27,12 @@ const CallFrame = struct {
     slot_offset: usize,
 };
 
+pub const VmIo = struct {
+    system: std.Io,
+    in: *std.Io.Reader,
+    out: *std.Io.Writer,
+};
+
 pub const VM = struct {
     const Self = @This();
 
@@ -34,18 +44,95 @@ pub const VM = struct {
     stack: [256]Value,
     stack_top: usize,
 
+    // Native registry
+    table_methods: std.StringHashMap(NativeFn),
+    string_methods: std.StringHashMap(NativeFn),
+    result_methods: std.StringHashMap(NativeFn),
+
     globals: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
+    io: VmIo,
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{
+    halt_frame_count: ?usize = null,
+
+    pub fn init(allocator: std.mem.Allocator, io: VmIo) !Self {
+        var vm = Self{
             .frames = undefined,
             .stack = undefined,
             .stack_top = 0,
             .globals = std.StringHashMap(Value).init(allocator),
             .allocator = allocator,
             .frame_count = 0,
+            .string_methods = std.StringHashMap(NativeFn).init(allocator),
+            .table_methods = std.StringHashMap(NativeFn).init(allocator),
+            .result_methods = std.StringHashMap(NativeFn).init(allocator),
+            .halt_frame_count = null,
+            .io = io,
         };
+
+        var io_module = try allocator.create(TableObj);
+        io_module.* = .{
+            .obj = .{ .obj_type = .Table, .next = null },
+            .fields = std.StringHashMap(Value).init(allocator),
+            .elements = .empty,
+        };
+
+        var fs_module = try allocator.create(TableObj);
+        fs_module.* = .{
+            .obj = .{ .obj_type = .Table, .next = null },
+            .fields = std.StringHashMap(Value).init(allocator),
+            .elements = .empty,
+        };
+
+        var fs_stat_native = try allocator.create(ObjNative);
+        fs_stat_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.fs.stat,
+            .name = "stat",
+        };
+
+        try fs_module.fields.put("stat", .{ .Object = &fs_stat_native.obj });
+        try vm.globals.put("fs", .{ .Object = &fs_module.obj });
+
+        var print_native = try allocator.create(ObjNative);
+        print_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.io.print,
+            .name = "print",
+        };
+
+        var println_native = try allocator.create(ObjNative);
+        println_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.io.println,
+            .name = "println",
+        };
+
+        var read_native = try allocator.create(ObjNative);
+        read_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.io.read,
+            .name = "read",
+        };
+
+        try io_module.fields.put("read", .{ .Object = &read_native.obj });
+        try io_module.fields.put("print", .{ .Object = &print_native.obj });
+        try io_module.fields.put("println", .{ .Object = &println_native.obj });
+        try vm.globals.put("io", .{ .Object = &io_module.obj });
+
+        try vm.table_methods.put("push", stdlib.table.push);
+        try vm.table_methods.put("map", stdlib.table.map);
+        try vm.table_methods.put("filter", stdlib.table.filter);
+        try vm.table_methods.put("len", stdlib.table.len);
+        try vm.table_methods.put("pop", stdlib.table.pop);
+
+        try vm.string_methods.put("push", stdlib.string.push);
+        try vm.string_methods.put("len", stdlib.string.len);
+        try vm.string_methods.put("split", stdlib.string.split);
+
+        try vm.result_methods.put("unwrap", stdlib.variant.unwrap);
+
+        return vm;
     }
 
     pub fn deinit(self: *Self) void {
@@ -64,6 +151,59 @@ pub const VM = struct {
     fn pop(self: *Self) Value {
         self.stack_top -= 1;
         return self.stack[self.stack_top];
+    }
+
+    pub fn createString(self: *Self, chars: []const u8) !*ObjString {
+        const obj_str = try self.allocator.create(ObjString);
+        obj_str.* = .{
+            .obj = .{ .obj_type = .String, .next = null },
+            .chars = chars,
+        };
+        return obj_str;
+    }
+
+    pub fn createTable(self: *Self) !*TableObj {
+        const table_obj = try self.allocator.create(TableObj);
+        table_obj.* = .{
+            .obj = .{ .obj_type = .Table, .next = null },
+            .fields = std.StringHashMap(Value).init(self.allocator),
+            .elements = .empty,
+        };
+        return table_obj;
+    }
+
+    pub fn createVariant(self: *Self, namespace: *ObjString, name: *ObjString, payload: []Value) !*VariantObj {
+        const variant_obj = try self.allocator.create(VariantObj);
+        variant_obj.* = .{
+            .obj = .{ .obj_type = .Variant, .next = null },
+            .namespace = namespace,
+            .variant_name = name,
+            .payload = payload,
+        };
+        return variant_obj;
+    }
+
+    pub fn createResultOk(self: *Self, payload: Value) !Value {
+        const ns_str = try self.createString("Result");
+        const name_str = try self.createString("Ok");
+
+        const payload_slice = try self.allocator.alloc(Value, 1);
+        payload_slice[0] = payload;
+
+        const variant_obj = try self.createVariant(ns_str, name_str, payload_slice);
+        return .{ .Object = &variant_obj.obj };
+    }
+
+    pub fn createResultErr(self: *Self, error_msg: []const u8) !Value {
+        const ns_str = try self.createString("Result");
+        const name_str = try self.createString("Err");
+        const err_str = try self.createString(error_msg);
+
+        const payload_slice = try self.allocator.alloc(Value, 1);
+
+        payload_slice[0] = .{ .Object = &err_str.obj };
+        const variant_obj = try self.createVariant(ns_str, name_str, payload_slice);
+        return .{ .Object = &variant_obj.obj };
     }
 
     fn readByte(self: *Self) u8 {
@@ -109,18 +249,18 @@ pub const VM = struct {
 
                 switch (a_obj.obj_type) {
                     .String => {
-                        const string_a_obj: *ObjString = @fieldParentPtr("obj", a_obj);
+                        const string_a_obj = a_obj.toString();
                         const str_a = string_a_obj.chars;
 
-                        const string_b_obj: *ObjString = @fieldParentPtr("obj", b_obj);
+                        const string_b_obj = b_obj.toString();
                         const str_b = string_b_obj.chars;
 
                         return std.mem.eql(u8, str_a, str_b);
                     },
                     .Table => {
-                        const table_a_obj: *TableObj = @fieldParentPtr("obj", a_obj);
+                        const table_a_obj = a_obj.toTable();
 
-                        const table_b_obj: *TableObj = @fieldParentPtr("obj", b_obj);
+                        const table_b_obj = b_obj.toTable();
 
                         if (table_a_obj.elements.items.len != table_b_obj.elements.items.len)
                             return false;
@@ -147,8 +287,8 @@ pub const VM = struct {
                         return true;
                     },
                     .Variant => {
-                        const var_a_obj: *VariantObj = @fieldParentPtr("obj", a_obj);
-                        const var_b_obj: *VariantObj = @fieldParentPtr("obj", b_obj);
+                        const var_a_obj = a_obj.toVariant();
+                        const var_b_obj = b_obj.toVariant();
 
                         const a_namespace = var_a_obj.namespace;
                         const b_namespace = var_b_obj.namespace;
@@ -185,17 +325,66 @@ pub const VM = struct {
                         return true;
                     },
                     .Function => {
-                        const fn_a_obj: *FunctionObj = @fieldParentPtr("obj", a_obj);
-                        const fn_b_obj: *FunctionObj = @fieldParentPtr("obj", b_obj);
+                        const fn_a_obj = a_obj.toFunction();
+                        const fn_b_obj = b_obj.toFunction();
 
                         return fn_a_obj == fn_b_obj;
+                    },
+                    .Native => {
+                        const native_obj_a = a_obj.toNative();
+                        const native_obj_b = b_obj.toNative();
+
+                        return native_obj_a.function == native_obj_b.function;
                     },
                 }
             },
         }
     }
 
-    fn isFalsey(value: Value) bool {
+    pub fn executeLambda(self: *Self, lambda: Value, arg: Value) !Value {
+        if (lambda != .Object or lambda.Object.obj_type != .Function) {
+            std.debug.print("Runtime Error: Expected a function for lambda execution.\n", .{});
+            return error.RuntimeError;
+        }
+        const func = lambda.Object.toFunction();
+
+        const starting_frame_count = self.frame_count;
+
+        if (self.frame_count == 64) {
+            std.debug.print("Runtime Error: Stack Overflow\n", .{});
+            return error.RuntimeError;
+        }
+
+        const base_stack_top = self.stack_top;
+
+        self.stack[self.stack_top] = lambda;
+        self.stack_top += 1;
+
+        self.stack[self.stack_top] = arg;
+        self.stack_top += 1;
+
+        self.frames[self.frame_count] = .{
+            .function = func,
+            .ip = 0,
+            .slot_offset = base_stack_top,
+        };
+        self.frame_count += 1;
+
+        const previous_halt = self.halt_frame_count;
+        self.halt_frame_count = starting_frame_count;
+
+        try self.run();
+
+        self.halt_frame_count = previous_halt;
+
+        const lambda_result = self.stack[self.stack_top - 1];
+
+        self.stack_top = base_stack_top;
+
+        return lambda_result;
+    }
+
+    pub fn isFalsey(value: Value) bool {
         switch (value) {
             .Number => |n| return n == 0,
             .Boolean => |b| return !b,
@@ -214,7 +403,7 @@ pub const VM = struct {
         self.frames[0] = .{
             .function = function,
             .ip = 0,
-            .slot_offset = 0,
+            .slot_offset = self.stack_top - 1,
         };
         self.frame_count = 1;
         return self.run();
@@ -224,7 +413,7 @@ pub const VM = struct {
         while (true) {
             var frame = self.currentFrame();
 
-            _ = debug.disassembleInstruction(&frame.function.chunk, frame.ip) catch 0;
+            // _ = debug.disassembleInstruction(&frame.function.chunk, frame.ip) catch 0;
 
             const instruction = self.readByte();
             const op: OpCode = @enumFromInt(instruction);
@@ -236,7 +425,7 @@ pub const VM = struct {
                 },
                 .OP_DEFINE_GLOBAL => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
                     const value = self.pop();
@@ -244,7 +433,7 @@ pub const VM = struct {
                 },
                 .OP_SET_GLOBAL => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
                     if (!self.globals.contains(name)) {
@@ -257,7 +446,7 @@ pub const VM = struct {
                 },
                 .OP_GET_GLOBAL => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
                     if (self.globals.get(name)) |value| {
@@ -271,19 +460,14 @@ pub const VM = struct {
                     const array_count = self.readByte();
                     const dict_count = self.readByte();
 
-                    var table_obj = try self.allocator.create(TableObj);
-                    table_obj.* = .{
-                        .obj = .{ .obj_type = .Table, .next = null },
-                        .fields = std.StringHashMap(Value).init(self.allocator),
-                        .elements = .empty,
-                    };
+                    var table_obj = try self.createTable();
 
                     var i: usize = 0;
                     while (i < dict_count) : (i += 1) {
                         const value = self.pop();
                         const key_val = self.pop();
 
-                        const key_obj: *ObjString = @fieldParentPtr("obj", key_val.Object);
+                        const key_obj = key_val.Object.toString();
                         try table_obj.fields.put(key_obj.chars, value);
                     }
 
@@ -298,7 +482,7 @@ pub const VM = struct {
                 },
                 .OP_GET_PROPERTY => {
                     const name_val = self.readConstant();
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_obj = name_val.Object.toString();
                     const property_name = name_obj.chars;
 
                     const instance_val = self.pop();
@@ -308,7 +492,7 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
 
-                    const table: *TableObj = @fieldParentPtr("obj", instance_val.Object);
+                    const table = instance_val.Object.toTable();
 
                     if (table.fields.get(property_name)) |value| {
                         self.push(value);
@@ -317,62 +501,141 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
                 },
+                .OP_SET_PROPRETY => {
+                    const name_val = self.readConstant();
+                    const name_obj = name_val.Object.toString();
+                    const property_name = name_obj.chars;
+
+                    const value = self.pop();
+                    const instance_val = self.pop();
+
+                    if (instance_val != .Object or instance_val.Object.obj_type != .Table) {
+                        std.debug.print("Runtime Error: Only tables have properties.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const table = instance_val.Object.toTable();
+
+                    try table.fields.put(property_name, value);
+
+                    self.push(value);
+                },
                 .OP_INVOKE => {
                     const methode_name_val = self.readConstant();
-                    const methode_name_obj: *ObjString = @fieldParentPtr("obj", methode_name_val.Object);
+                    const methode_name_obj = methode_name_val.Object.toString();
                     const method_name = methode_name_obj.chars;
 
                     const arg_count = self.readByte();
-
                     const receiver = self.peek(arg_count);
 
-                    if (receiver != .Object or receiver.Object.obj_type != .Table) {
-                        std.debug.print("Runtime Error: Only tables have methods.\n", .{});
-                        return error.Runtime;
+                    if (receiver != .Object) {
+                        std.debug.print("Runtime Error: Only objects have methods.\n", .{});
+                        return error.RuntimeError;
                     }
 
-                    const table: *TableObj = @fieldParentPtr("obj", receiver.Object);
+                    switch (receiver.Object.obj_type) {
+                        .Table => {
+                            const table = receiver.Object.toTable();
 
-                    if (table.fields.get(method_name)) |methode_val| {
-                        if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
-                            std.debug.print("Runtime Error: Property '{s}' is not a function\n", .{method_name});
+                            if (table.fields.get(method_name)) |methode_val| {
+                                if (methode_val != .Object or methode_val.Object.obj_type != .Function) {
+                                    std.debug.print("Runtime Error: Property '{s}' is not a function\n", .{method_name});
+                                    return error.RuntimeError;
+                                }
+
+                                const func = methode_val.Object.toFunction();
+
+                                if (arg_count + 1 != func.arity) {
+                                    std.debug.print("Runtime Error: Expected {d} args but got {d}", .{ func.arity, arg_count + 1 });
+                                    return error.RuntimeError;
+                                }
+
+                                if (self.frame_count == 64) {
+                                    std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                                    return error.RuntimeError;
+                                }
+
+                                var i: usize = 0;
+                                while (i <= arg_count) : (i += 1) {
+                                    self.stack[self.stack_top - i] = self.stack[self.stack_top - i - 1];
+                                }
+
+                                self.stack[self.stack_top - arg_count - 1] = .{ .Object = &func.obj };
+                                self.stack_top += 1;
+
+                                self.frames[self.frame_count] = .{
+                                    .function = func,
+                                    .ip = 0,
+                                    .slot_offset = self.stack_top - 2,
+                                };
+                                self.frame_count += 1;
+                            } else if (self.table_methods.get(method_name)) |native_func| {
+                                const total_args = arg_count + 1;
+                                const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+
+                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+
+                                self.stack_top -= total_args;
+                                self.push(result);
+                            } else {
+                                std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .String => {
+                            if (self.string_methods.get(method_name)) |native_func| {
+                                const total_args = arg_count + 1;
+                                const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+
+                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+
+                                self.stack_top -= total_args;
+                                self.push(result);
+                            } else {
+                                std.debug.print("Runtime Error: Undefined string method '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .Variant => {
+                            const variant = receiver.Object.toVariant();
+                            if (variant.namespace) |namespace| {
+                                if (std.mem.eql(u8, namespace.chars, "Result")) {
+                                    if (self.result_methods.get(method_name)) |native_fn| {
+                                        const total_args = arg_count + 1;
+                                        const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+                                        const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                        self.stack_top -= total_args;
+                                        self.push(result);
+                                    } else {
+                                        std.debug.print("Runtime Error: Undefined method '{s}' on Result variant.\n", .{method_name});
+                                        return error.RuntimeError;
+                                    }
+                                }
+                            } else {
+                                if (variant.namespace) |namespace| {
+                                    std.debug.print("Runtime Error: Variant '{s}' does not support methods.\n", .{namespace.chars});
+                                } else {
+                                    std.debug.print("Runtime Error: Variant '{s}' does not support methods.\n", .{variant.variant_name.chars});
+                                }
+                                return error.RuntimeError;
+                            }
+                        },
+                        else => {
+                            std.debug.print("Runtime Error: Type '{s}' does not support methods.\n", .{@tagName(receiver.Object.obj_type)});
                             return error.RuntimeError;
-                        }
-
-                        const func: *FunctionObj = @fieldParentPtr("obj", methode_val.Object);
-
-                        if (arg_count + 1 != func.arity) {
-                            std.debug.print("Runtime Error: Expected {d} args but got {d}", .{ func.arity, arg_count + 1 });
-                            return error.RuntimeError;
-                        }
-
-                        if (self.frame_count == 64) {
-                            std.debug.print("Runtime Error: Stack Overflow\n", .{});
-                            return error.RuntimeError;
-                        }
-
-                        var i: usize = 0;
-                        while (i <= arg_count) : (i += 1) {
-                            self.stack[self.stack_top - i] = self.stack[self.stack_top - i - 1];
-                        }
-
-                        self.stack[self.stack_top - arg_count - 1] = .{ .Object = &func.obj };
-                        self.stack_top += 1;
-
-                        self.frames[self.frame_count] = .{
-                            .function = func,
-                            .ip = 0,
-                            .slot_offset = self.stack_top - 2,
-                        };
-                        self.frame_count += 1;
-                    } else {
-                        std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{method_name});
-                        return error.RuntimeError;
+                        },
                     }
                 },
                 .OP_ADD => {
                     const b = self.pop();
                     const a = self.pop();
+
+                    if (a != .Number or b != .Number) {
+                        a.print(0);
+                        b.print(0);
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
 
                     const result = a.Number + b.Number;
                     self.push(.{ .Number = result });
@@ -384,6 +647,40 @@ pub const VM = struct {
                     const result = a.Number - b.Number;
                     self.push(.{ .Number = result });
                 },
+                .OP_MULTIPLY => {
+                    const a = self.pop();
+                    const b = self.pop();
+
+                    if (a != .Number or b != .Number) {
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const result = a.Number * b.Number;
+                    self.push(.{ .Number = result });
+                },
+                .OP_LESS => {
+                    const b = self.pop();
+                    const a = self.pop();
+
+                    if (a != .Number or b != .Number) {
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    self.push(.{ .Boolean = a.Number < b.Number });
+                },
+                .OP_GREATER => {
+                    const b = self.pop();
+                    const a = self.pop();
+
+                    if (a != .Number or b != .Number) {
+                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    self.push(.{ .Boolean = a.Number > b.Number });
+                },
                 .OP_EQUAL => {
                     const a = self.pop();
                     const b = self.pop();
@@ -392,21 +689,45 @@ pub const VM = struct {
                 },
                 .OP_RETURN => {
                     const result = self.pop();
+                    var final_result = result;
+                    const current_frame = self.frames[self.frame_count - 1];
+
+                    if (current_frame.function.can_fail) {
+                        var is_already_result = false;
+
+                        if (result == .Object and result.Object.obj_type == .Variant) {
+                            const variant = result.Object.toVariant();
+                            if (variant.namespace) |namespace| {
+                                if (std.mem.eql(u8, namespace.chars, "Result")) {
+                                    is_already_result = true;
+                                }
+                            }
+                        }
+                        if (!is_already_result) {
+                            final_result = self.createResultOk(result) catch unreachable;
+                        }
+                    }
+
                     self.frame_count -= 1;
 
-                    if (self.frame_count == 0) {
-                        std.debug.print("====FINAL MEMORY STATE====\n", .{});
-                        var it = self.globals.iterator();
-                        while (it.next()) |entry| {
-                            std.debug.print("{s} = ", .{entry.key_ptr.*});
-                            entry.value_ptr.*.print();
-                            std.debug.print("\n", .{});
-                        }
+                    self.stack_top = self.frames[self.frame_count].slot_offset;
+                    self.push(result);
+
+                    if (self.halt_frame_count) |halt_target| {
+                        if (self.frame_count == halt_target) return;
+                    } else if (self.frame_count == 0) {
+                        // std.debug.print("====FINAL MEMORY STATE====\n", .{});
+                        // var it = self.globals.iterator();
+                        // while (it.next()) |entry| {
+                        //     std.debug.print("{s} = ", .{entry.key_ptr.*});
+                        //     entry.value_ptr.*.print();
+                        //     std.debug.print("\n", .{});
+                        // }
                         return;
                     }
 
                     self.stack_top = self.frames[self.frame_count].slot_offset;
-                    self.push(result);
+                    self.push(final_result);
                 },
                 .OP_POP => {
                     _ = self.pop();
@@ -437,28 +758,83 @@ pub const VM = struct {
                     const arg_count = self.readByte();
                     const callee = self.peek(arg_count);
 
-                    if (callee != .Object or callee.Object.obj_type != .Function) {
-                        std.debug.print("Runtime Error: Can only call function.\n", .{});
-                        return error.RuntimeError;
-                    }
-                    const func: *FunctionObj = @fieldParentPtr("obj", callee.Object);
-
-                    if (arg_count != func.arity) {
-                        std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
+                    if (callee != .Object) {
+                        std.debug.print("Runtime Error: Can only call functions or native methods.\n", .{});
                         return error.RuntimeError;
                     }
 
-                    if (self.frame_count == 64) {
-                        std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                    switch (callee.Object.obj_type) {
+                        .Function => {
+                            const func = callee.Object.toFunction();
+
+                            if (func.arity != 255 and arg_count != func.arity) {
+                                std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
+                                return error.RuntimeError;
+                            }
+
+                            if (self.frame_count == 64) {
+                                std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                                return error.RuntimeError;
+                            }
+
+                            self.frames[self.frame_count] = .{
+                                .function = func,
+                                .ip = 0,
+                                .slot_offset = self.stack_top - arg_count - 1,
+                            };
+                            self.frame_count += 1;
+                        },
+                        .Native => {
+                            const native_obj = callee.Object.toNative();
+                            const args_slice = self.stack[self.stack_top - arg_count .. self.stack_top];
+                            const result = native_obj.function(self, arg_count, args_slice.ptr);
+
+                            self.stack_top -= (arg_count + 1);
+                            self.push(result);
+                        },
+                        else => {
+                            std.debug.print("Runtime Error: Object is not callable.\n", .{});
+                            return error.RuntimeError;
+                        },
+                    }
+                },
+                .OP_TRY => {
+                    const top_val = self.peek(0);
+
+                    if (top_val != .Object or top_val.Object.obj_type != .Variant) {
+                        std.debug.print("Runtime Error: '?' operator expects a Result variant.\n", .{});
                         return error.RuntimeError;
                     }
 
-                    self.frames[self.frame_count] = .{
-                        .function = func,
-                        .ip = 0,
-                        .slot_offset = self.stack_top - arg_count - 1,
-                    };
-                    self.frame_count += 1;
+                    const variant = top_val.Object.toVariant();
+                    if (variant.namespace) |namespace| {
+                        if (!std.mem.eql(u8, namespace.chars, "Result")) {
+                            std.debug.print("Runtime Error: '?' operator expects a Result variant.\n", .{});
+                            return error.RuntimeError;
+                        }
+                    } else {
+                        std.debug.print("Runtime Error: '?' operator expects a Result variant.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    if (std.mem.eql(u8, variant.variant_name.chars, "Ok")) {
+                        _ = self.pop();
+                        self.push(variant.payload[0]);
+                    } else {
+                        if (self.frame_count == 1) {
+                            //INFO: main script case
+                            const msg = variant.payload[0].Object.toString().chars;
+                            std.debug.print("Unhandled error in main : {s}\n", .{msg});
+                            return error.RuntimeError;
+                        } else {
+                            //INFO: inside a function case
+                            const err_result = self.pop();
+
+                            self.frame_count -= 1;
+                            self.stack_top = self.frames[self.frame_count].slot_offset;
+                            self.push(err_result);
+                        }
+                    }
                 },
                 .OP_GET_INDEX => {
                     const index_val = self.pop();
@@ -472,7 +848,7 @@ pub const VM = struct {
                     const index: usize = @intCast(index_val.Number);
 
                     if (object_val == .Object and object_val.Object.obj_type == .Table) {
-                        const table: *TableObj = @fieldParentPtr("obj", object_val.Object);
+                        const table = object_val.Object.toTable();
 
                         if (index >= table.elements.items.len) {
                             std.debug.print("Runtime Error: Array index out of bounds.\n", .{});
@@ -480,7 +856,7 @@ pub const VM = struct {
                         }
                         self.push(table.elements.items[index]);
                     } else if (object_val == .Object and object_val.Object.obj_type == .String) {
-                        const string: *ObjString = @fieldParentPtr("obj", object_val.Object);
+                        const string = object_val.Object.toString();
 
                         if (index >= string.chars.len) {
                             std.debug.print("Runtime Error: String index out of bounds.\n", .{});
@@ -492,11 +868,7 @@ pub const VM = struct {
                         var char_slice = try self.allocator.alloc(u8, 1);
                         char_slice[0] = char;
 
-                        var new_str = try self.allocator.create(ObjString);
-                        new_str.* = .{
-                            .obj = .{ .obj_type = .String, .next = null },
-                            .chars = char_slice,
-                        };
+                        var new_str = try self.createString(char_slice);
 
                         self.push(.{ .Object = &new_str.obj });
                     } else {
@@ -513,7 +885,7 @@ pub const VM = struct {
                     const target = self.peek(0);
 
                     const name_val = frame.function.chunk.constants.items[name_idx];
-                    const name_str_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const name_str_obj = name_val.Object.toString();
                     const name_str = name_str_obj.chars;
 
                     if (std.mem.eql(u8, name_str, "_")) {
@@ -526,7 +898,7 @@ pub const VM = struct {
                         continue;
                     }
 
-                    const variant_obj: *VariantObj = @fieldParentPtr("obj", target.Object);
+                    const variant_obj = target.Object.toVariant();
                     if (!std.mem.eql(u8, variant_obj.variant_name.chars, name_str)) {
                         self.push(.{ .Boolean = false });
                         continue;
@@ -534,7 +906,7 @@ pub const VM = struct {
 
                     if (has_ns == 1) {
                         const ns_val = frame.function.chunk.constants.items[ns_idx];
-                        const ns_str_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
+                        const ns_str_obj = ns_val.Object.toString();
                         const ns_str = ns_str_obj.chars;
 
                         if (variant_obj.namespace) |v_ns| {
@@ -560,7 +932,7 @@ pub const VM = struct {
 
                     if (binding_count > 0) {
                         const target = self.peek(0);
-                        const variant_obj: *VariantObj = @fieldParentPtr("obj", target.Object);
+                        const variant_obj = target.Object.toVariant();
 
                         for (variant_obj.payload) |val| {
                             self.push(val);
@@ -572,8 +944,8 @@ pub const VM = struct {
                     const name_val = self.readConstant();
                     const arg_count = self.readByte();
 
-                    const ns_obj: *ObjString = @fieldParentPtr("obj", ns_val.Object);
-                    const name_obj: *ObjString = @fieldParentPtr("obj", name_val.Object);
+                    const ns_obj = ns_val.Object.toString();
+                    const name_obj = name_val.Object.toString();
 
                     var payload = try self.allocator.alloc(Value, arg_count);
 

@@ -41,6 +41,9 @@ pub const TokenType = enum {
     Pipe, // |  (for ADTs: | Some(val))
     Underscore, // _ (for pattern matching)
 
+    Exclamationmark, // ! for error returning function
+    QuestionMark, // ? for error propagation
+
     // --- 4. Delimiters ---
     LParen, // (
     RParen, // )
@@ -299,6 +302,7 @@ pub const Lexer = struct {
             '*' => return self.makeToken(.Star, start),
             '/' => return self.makeToken(.Slash, start),
             '|' => return self.makeToken(.Pipe, start),
+            '?' => return self.makeToken(.QuestionMark, start),
 
             '=' => {
                 if (self.match('=')) return self.makeToken(.EqualsEquals, start);
@@ -306,7 +310,7 @@ pub const Lexer = struct {
                 return self.makeToken(.Equals, start);
             },
             '!' => {
-                if (self.match('=')) return self.makeToken(.BangEquals, start);
+                if (self.match('=')) return self.makeToken(.BangEquals, start) else return self.makeToken(.Exclamationmark, start);
             },
             '>' => {
                 if (self.match('=')) return self.makeToken(.GreaterEqual, start);
@@ -470,6 +474,21 @@ test "lexer: match with default case" {
         .{ .tag = .Identifier, .lexeme = "oui" },
 
         .{ .tag = .Dedent, .lexeme = "" },
+        .{ .tag = .Eof, .lexeme = "" },
+    });
+}
+
+test "lexer: variant call at EOF without newline" {
+    const source = "io::print(test)";
+
+    try expectTokens(source, &.{
+        .{ .tag = .Identifier, .lexeme = "io" },
+        .{ .tag = .DoubleColon, .lexeme = "::" },
+        .{ .tag = .Identifier, .lexeme = "print" },
+        .{ .tag = .LParen, .lexeme = "(" },
+        .{ .tag = .Identifier, .lexeme = "test" },
+        .{ .tag = .RParen, .lexeme = ")" },
+
         .{ .tag = .Eof, .lexeme = "" },
     });
 }

@@ -129,7 +129,7 @@ pub const Parser = struct {
         } };
     }
 
-    fn parse_fn(self: *Self) ParseError!ast.Node {
+    fn parse_fn(self: *Self, can_fail: bool) ParseError!ast.Node {
         try self.consume(.Identifier, "Expected function name after 'fn' keyword.");
         const name = self.previous.lexeme;
 
@@ -158,6 +158,7 @@ pub const Parser = struct {
             .name = name,
             .params = try params.toOwnedSlice(self.arena),
             .body = heap_body,
+            .can_fail = can_fail,
         } };
     }
 
@@ -262,6 +263,10 @@ pub const Parser = struct {
                     .object = object_ptr,
                     .index = index_ptr,
                 } };
+            } else if (self.match(.QuestionMark)) {
+                const expr_ptr = try self.arena.create(ast.Node);
+                expr_ptr.* = expr;
+                expr = .{ .Try = expr_ptr };
             } else {
                 break;
             }
@@ -455,7 +460,10 @@ pub const Parser = struct {
 
     fn parse_decl(self: *Self) !ast.Node {
         if (self.match(.Type)) return try self.patse_type();
-        if (self.match(.Fn)) return try self.parse_fn();
+        if (self.match(.Fn)) {
+            const can_fail = self.match(.Exclamationmark);
+            return try self.parse_fn(can_fail);
+        }
         if (self.match(.If)) {
             return try self.parse_if();
         }
@@ -518,13 +526,7 @@ pub const Parser = struct {
         const expr = try self.parse_expr();
 
         if (self.match(.Equals)) {
-            if (expr != .Identifier) {
-                std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
-                self.had_error = true;
-                return error.SyntaxError;
-            }
-
-            const name = expr.Identifier;
+            // const name = expr.Identifier;
             const value_node = try self.parse_expr();
 
             const heap_node = try self.arena.create(ast.Node);
@@ -534,14 +536,37 @@ pub const Parser = struct {
                 try self.consume(.NewLine, "Expected newline after assignment");
             }
 
-            return .{ .Assignment = .{ .name = name, .value = heap_node } };
+            switch (expr) {
+                .Identifier => |name| {
+                    return .{ .Assignment = .{ .name = name, .value = heap_node } };
+                },
+                .Get => |g| {
+                    return .{ .Set = .{ .object = g.object, .name = g.name, .value = heap_node } };
+                },
+                .VariantAccess => |v| {
+                    const ns_ptr = try self.arena.create(ast.Node);
+                    ns_ptr.* = .{ .Identifier = v.namespace };
+
+                    return .{ .Set = .{ .object = ns_ptr, .name = v.variant, .value = heap_node } };
+                },
+                else => {
+                    std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
+                    self.had_error = true;
+                    return error.SyntaxError;
+                },
+            }
         }
 
-        if (self.current.tag != .Eof) {
+        if (self.current.tag != .Eof and self.current.tag != .Dedent and self.previous.tag != .Dedent) {
             try self.consume(.NewLine, "Expected newline after expression.");
+        } else if (self.current.tag == .NewLine) {
+            _ = self.advance();
         }
 
-        return expr;
+        const expr_ptr = try self.arena.create(ast.Node);
+        expr_ptr.* = expr;
+
+        return .{ .ExpressionStatement = expr_ptr };
     }
 
     fn parse_primary(self: *Self) ParseError!ast.Node {
@@ -555,7 +580,10 @@ pub const Parser = struct {
         if (self.match(.Pipe)) return try self.parse_lambda();
         if (self.match(.LBrace)) return try self.parse_table();
 
-        if (self.match(.Fn)) return try self.parse_fn();
+        if (self.match(.Fn)) {
+            const can_fail = self.match(.Exclamationmark);
+            return try self.parse_fn(can_fail);
+        }
 
         if (self.match(.LParen)) {
             const expr = try self.parse_expr();
@@ -949,4 +977,25 @@ test "parser: method calls and lambdas" {
     const lambda = args[0].Lambda;
     try testing.expectEqualStrings("u", lambda.params[0]);
     try testing.expectEqual(.Get, std.meta.activeTag(lambda.body.*));
+}
+
+test "parser: variant call at EOF" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const source = "io::print(test)";
+
+    const root = try setupParserTest(arena.allocator(), source);
+
+    const call_node = root.Root.statements[0];
+
+    try std.testing.expectEqual(.VariantCall, std.meta.activeTag(call_node));
+    try std.testing.expectEqualStrings("io", call_node.VariantCall.namespace);
+    try std.testing.expectEqualStrings("print", call_node.VariantCall.variant);
+
+    const args = call_node.VariantCall.arguments;
+    try std.testing.expectEqual(@as(usize, 1), args.len);
+
+    try std.testing.expectEqual(.Identifier, std.meta.activeTag(args[0]));
+    try std.testing.expectEqualStrings("test", args[0].Identifier);
 }

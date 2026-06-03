@@ -33,3 +33,13 @@ match opt:
   _ => 
     test = 9
 
+
+io::print("oui je test des trucs")
+
+let ages = {25, 30, 18}
+let doubled = ages.map(|e| e * 2)
+
+io::print(ages)
+io::print(doubled)
+
+io::println(table)

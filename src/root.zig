@@ -7,9 +7,13 @@ const compiler = @import("compiler/compiler.zig");
 const debug = @import("compiler/debug.zig");
 const VM = @import("runtime/vm.zig").VM;
 
-pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
-    var scanner = lexer.Lexer.init(source);
+pub const VmIo = @import("runtime/vm.zig").VmIo;
 
+pub fn interpret(io: VmIo, allocator: std.mem.Allocator, source: []const u8) !void {
+    var vm = try VM.init(allocator, io);
+    defer vm.deinit();
+
+    var scanner = lexer.Lexer.init(source);
     var p = parser.Parser.init(&scanner, allocator);
     const ast_root = try p.parse();
 
@@ -18,27 +22,18 @@ pub fn interpret(allocator: std.mem.Allocator, source: []const u8) !void {
     }
 
     var chunk = chunk_mod.Chunk.init(allocator);
-    defer chunk.deinit();
-
     var comp = compiler.Compiler.init(allocator, &chunk);
     try comp.compile(ast_root);
-
     try chunk.write(@intFromEnum(chunk_mod.OpCode.OP_RETURN), 0);
 
-    try debug.disassembleChunk(&chunk, "Bytecode");
-
     const script_function = try allocator.create(value_mod.FunctionObj);
-    defer allocator.destroy(script_function);
-
     script_function.* = .{
         .obj = .{ .obj_type = .Function, .next = null },
         .arity = 0,
         .chunk = chunk,
         .name = null,
+        .can_fail = true,
     };
-
-    var vm = VM.init(allocator);
-    defer vm.deinit();
 
     try vm.interpret(script_function);
 }
