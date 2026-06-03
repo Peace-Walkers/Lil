@@ -29,6 +29,10 @@ pub const Node = union(enum) {
     Boolean: bool,
     ExpressionStatement: *Node,
 
+    Import: struct {
+        path: *Node,
+    },
+
     Root: struct {
         statements: []Node,
     },

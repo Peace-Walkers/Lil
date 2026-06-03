@@ -592,6 +592,17 @@ pub const Parser = struct {
         if (self.match(.Pipe)) return try self.parse_lambda();
         if (self.match(.LBrace)) return try self.parse_table();
 
+        if (self.match(.Import)) {
+            try self.consume(.LParen, "Expected '(' after 'import'.");
+            const path_node = try self.parse_expr();
+            try self.consume(.RParen, "Expected ')' after 'import'.");
+
+            const path_ptr = try self.arena.create(ast.Node);
+            path_ptr.* = path_node;
+
+            return .{ .Import = .{ .path = path_ptr } };
+        }
+
         if (self.match(.Fn)) {
             const can_fail = self.match(.Exclamationmark);
             return try self.parse_fn(can_fail);
