@@ -70,56 +70,6 @@ pub const VM = struct {
             .io = io,
         };
 
-        var io_module = try allocator.create(TableObj);
-        io_module.* = .{
-            .obj = .{ .obj_type = .Table, .next = null },
-            .fields = std.StringHashMap(Value).init(allocator),
-            .elements = .empty,
-        };
-
-        var fs_module = try allocator.create(TableObj);
-        fs_module.* = .{
-            .obj = .{ .obj_type = .Table, .next = null },
-            .fields = std.StringHashMap(Value).init(allocator),
-            .elements = .empty,
-        };
-
-        var fs_stat_native = try allocator.create(ObjNative);
-        fs_stat_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.fs.stat,
-            .name = "stat",
-        };
-
-        try fs_module.fields.put("stat", .{ .Object = &fs_stat_native.obj });
-        try vm.globals.put("fs", .{ .Object = &fs_module.obj });
-
-        var print_native = try allocator.create(ObjNative);
-        print_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.io.print,
-            .name = "print",
-        };
-
-        var println_native = try allocator.create(ObjNative);
-        println_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.io.println,
-            .name = "println",
-        };
-
-        var read_native = try allocator.create(ObjNative);
-        read_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.io.read,
-            .name = "read",
-        };
-
-        try io_module.fields.put("read", .{ .Object = &read_native.obj });
-        try io_module.fields.put("print", .{ .Object = &print_native.obj });
-        try io_module.fields.put("println", .{ .Object = &println_native.obj });
-        try vm.globals.put("io", .{ .Object = &io_module.obj });
-
         try vm.table_methods.put("push", stdlib.table.push);
         try vm.table_methods.put("map", stdlib.table.map);
         try vm.table_methods.put("filter", stdlib.table.filter);

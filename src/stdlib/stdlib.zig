@@ -3,3 +3,26 @@ pub const table = @import("table.zig");
 pub const fs = @import("fs.zig");
 pub const string = @import("string.zig");
 pub const variant = @import("variant.zig");
+
+const VM = @import("../runtime/vm.zig").VM;
+
+pub fn openIo(vm: *VM) !void {
+    var io_module = try vm.createTable();
+    try vm.bindNative(io_module, "read", io.read);
+    try vm.bindNative(io_module, "print", io.print);
+    try vm.bindNative(io_module, "println", io.println);
+
+    try vm.setGlobal("io", .{ .Object = &io_module.obj });
+}
+
+pub fn openFs(vm: *VM) !void {
+    var fs_module = try vm.createTable();
+    try vm.bindNative(fs_module, "stat", fs.stat);
+
+    try vm.setGlobal("fs", .{ .Object = &fs_module.obj });
+}
+
+pub fn openAll(vm: *VM) !void {
+    try openIo(vm);
+    try openFs(vm);
+}

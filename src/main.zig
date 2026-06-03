@@ -34,6 +34,8 @@ pub fn main(init: std.process.Init) !void {
     var vm = try lil.VM.init(arena, vm_io);
     defer vm.deinit();
 
+    try lil.stdlib.openAll(&vm);
+
     var host_module = try vm.createTable();
     try vm.bindNative(host_module, "get_os", hostGetOs);
     try host_module.fields.put("version", .{ .Number = 1 });
