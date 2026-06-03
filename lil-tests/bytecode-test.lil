@@ -19,3 +19,12 @@ mut i = 10
 while i:
   i = i - 1
   io::println("i = {}", i)
+
+let oui = "oui"
+
+io::println("")
+
+
+io::println("Curent OS: ")
+io::println(host::get_os())
+io::println(host::version)

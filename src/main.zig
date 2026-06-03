@@ -3,6 +3,14 @@ const Io = std.Io;
 
 const lil = @import("lil");
 
+fn hostGetOs(vm: *anyopaque, arg_count: u8, args: [*]lil.Value) lil.Value {
+    _ = arg_count;
+    _ = args;
+    const v: *lil.VM = @ptrCast(@alignCast(vm));
+    const os_str = v.createString(@tagName(@import("builtin").target.os.tag)) catch unreachable;
+    return .{ .Object = &os_str.obj };
+}
+
 pub fn main(init: std.process.Init) !void {
     const arena: std.mem.Allocator = init.arena.allocator();
 
@@ -23,6 +31,17 @@ pub fn main(init: std.process.Init) !void {
         .out = stdout_writer,
     };
 
+    var vm = try lil.VM.init(arena, vm_io);
+    defer vm.deinit();
+
+    try lil.stdlib.openAll(&vm);
+
+    var host_module = try vm.createTable();
+    try vm.bindNative(host_module, "get_os", hostGetOs);
+    try host_module.fields.put("version", .{ .Number = 1 });
+
+    try vm.setGlobal("host", .{ .Object = &host_module.obj });
+
     if (args.len == 1) {
         try stdout_writer.print("LiLang v0.1.0 - REPL (Ctrl + C to exit)\n", .{});
         try stdout_writer.flush();
@@ -36,13 +55,14 @@ pub fn main(init: std.process.Init) !void {
                 }
                 break;
             };
-            std.log.info("read finish", .{});
-            if (line_or_eof != 0) {} else {
+            if (line_or_eof == 0) {} else {
                 try stdout_writer.print("\nBye!\n", .{});
                 break;
             }
-            std.debug.print("line: {s}\n", .{&stdin_buffer});
-            try lil.interpret(vm_io, arena, stdin_buffer[0..line_or_eof]);
+
+            vm.eval(stdin_buffer[0..line_or_eof]) catch |err| {
+                std.debug.print("Error: REPL: {}\n", .{err});
+            };
         }
     } else if (args.len == 2) {
         const file_path = args[1];
@@ -51,7 +71,7 @@ pub fn main(init: std.process.Init) !void {
             return;
         };
 
-        try lil.interpret(vm_io, arena, source);
+        try vm.eval(source);
     } else {
         try stdout_writer.print("Usage: lilang <script path>\n", .{});
     }

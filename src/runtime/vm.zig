@@ -70,56 +70,6 @@ pub const VM = struct {
             .io = io,
         };
 
-        var io_module = try allocator.create(TableObj);
-        io_module.* = .{
-            .obj = .{ .obj_type = .Table, .next = null },
-            .fields = std.StringHashMap(Value).init(allocator),
-            .elements = .empty,
-        };
-
-        var fs_module = try allocator.create(TableObj);
-        fs_module.* = .{
-            .obj = .{ .obj_type = .Table, .next = null },
-            .fields = std.StringHashMap(Value).init(allocator),
-            .elements = .empty,
-        };
-
-        var fs_stat_native = try allocator.create(ObjNative);
-        fs_stat_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.fs.stat,
-            .name = "stat",
-        };
-
-        try fs_module.fields.put("stat", .{ .Object = &fs_stat_native.obj });
-        try vm.globals.put("fs", .{ .Object = &fs_module.obj });
-
-        var print_native = try allocator.create(ObjNative);
-        print_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.io.print,
-            .name = "print",
-        };
-
-        var println_native = try allocator.create(ObjNative);
-        println_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.io.println,
-            .name = "println",
-        };
-
-        var read_native = try allocator.create(ObjNative);
-        read_native.* = .{
-            .obj = .{ .obj_type = .Native, .next = null },
-            .function = stdlib.io.read,
-            .name = "read",
-        };
-
-        try io_module.fields.put("read", .{ .Object = &read_native.obj });
-        try io_module.fields.put("print", .{ .Object = &print_native.obj });
-        try io_module.fields.put("println", .{ .Object = &println_native.obj });
-        try vm.globals.put("io", .{ .Object = &io_module.obj });
-
         try vm.table_methods.put("push", stdlib.table.push);
         try vm.table_methods.put("map", stdlib.table.map);
         try vm.table_methods.put("filter", stdlib.table.filter);
@@ -133,6 +83,54 @@ pub const VM = struct {
         try vm.result_methods.put("unwrap", stdlib.variant.unwrap);
 
         return vm;
+    }
+
+    pub fn eval(self: *Self, source: []const u8) !void {
+        const lexer = @import("../compiler/lexer.zig");
+        const parser = @import("../compiler/parser.zig");
+        const compiler = @import("../compiler/compiler.zig");
+
+        var scanner = lexer.Lexer.init(source);
+        var p = parser.Parser.init(&scanner, self.allocator);
+        const ast_root = try p.parse();
+
+        if (p.had_error) return error.CompileError;
+
+        var chunk = chunk_mod.Chunk.init(self.allocator);
+        var comp = compiler.Compiler.init(self.allocator, &chunk);
+
+        try comp.compile(ast_root);
+        try chunk.write(@intFromEnum(chunk_mod.OpCode.OP_RETURN), 0);
+
+        const script_function = try self.allocator.create(FunctionObj);
+        script_function.* = .{
+            .obj = .{ .obj_type = .Function, .next = null },
+            .arity = 0,
+            .chunk = chunk,
+            .name = null,
+            .can_fail = true,
+        };
+
+        try self.interpret(script_function);
+    }
+
+    pub fn setGlobal(self: *Self, name: []const u8, value: Value) !void {
+        try self.globals.put(name, value);
+    }
+
+    pub fn createNative(self: *Self, name: []const u8, func: NativeFn) !Value {
+        const native_obj = try self.allocator.create(ObjNative);
+        native_obj.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = func,
+            .name = name,
+        };
+        return .{ .Object = &native_obj.obj };
+    }
+
+    pub fn bindNative(self: *Self, table: *TableObj, name: []const u8, func: NativeFn) !void {
+        const native_val = try self.createNative(name, func);
+        try table.fields.put(name, native_val);
     }
 
     pub fn deinit(self: *Self) void {

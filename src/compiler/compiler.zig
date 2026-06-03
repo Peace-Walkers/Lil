@@ -250,81 +250,93 @@ pub const Compiler = struct {
                 try self.emitByte(@intCast(array_count));
                 try self.emitByte(@intCast(dict_count));
             },
-            .VariantAccess => |v| {
-                if (self.types_registry.get(v.namespace)) |variants| {
+            .PathAccess => |pa| {
+                const maybe_variants = if (pa.path.len == 2) self.types_registry.get(pa.path[0]) else null;
+                if (maybe_variants) |variants| {
                     var found = false;
-
                     for (variants) |variant| {
-                        if (std.mem.eql(u8, variant.name, v.variant)) {
+                        if (std.mem.eql(u8, variant.name, pa.path[1])) {
                             if (variant.params.len != 0) {
-                                std.debug.print("Compile Error: Variant '{s}::{s}' expects {d} args but got 0.\n", .{ v.namespace, v.variant, variant.params.len });
+                                std.debug.print("Compile Error: Variant '{s}::{s}' expects {d} args but got 0.\n", .{ pa.path[0], pa.path[1], variant.params.len });
                                 return error.CompileError;
                             }
                             found = true;
                             break;
                         }
                     }
-                    if (!found) {
-                        std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ v.namespace, v.variant });
-                        return error.CompileError;
-                    }
-                } else {
-                    std.debug.print("Compile Error: Undefined type '{s}'.\n", .{v.namespace});
-                    return error.CompileError;
-                }
 
-                const ns_idx = try self.emitStringConstant(v.namespace);
-                const name_idx = try self.emitStringConstant(v.variant);
-
-                try self.emitOp(.OP_BUILD_VARIANT);
-                try self.emitByte(ns_idx);
-                try self.emitByte(name_idx);
-                try self.emitByte(0);
-            },
-            .VariantCall => |v| {
-                if (self.types_registry.get(v.namespace)) |variants| {
-                    var found = false;
-                    for (variants) |variant| {
-                        if (std.mem.eql(u8, variant.name, v.variant)) {
-                            if (variant.params.len != v.arguments.len) {
-                                std.debug.print("Compile Error: Variant '{s}::{s}' expects {d} arguments but got {d}.\n", .{ v.namespace, v.variant, variant.params.len, v.arguments.len });
-                                return error.CompileError;
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
                     if (!found) {
-                        std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ v.namespace, v.variant });
+                        std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ pa.path[0], pa.path[1] });
                         return error.CompileError;
                     }
 
-                    for (v.arguments) |arg| {
-                        try self.compile(arg);
-                    }
-
-                    const ns_idx = try self.emitStringConstant(v.namespace);
-                    const name_idx = try self.emitStringConstant(v.variant);
+                    const ns_idx = try self.emitStringConstant(pa.path[0]);
+                    const name_idx = try self.emitStringConstant(pa.path[1]);
 
                     try self.emitOp(.OP_BUILD_VARIANT);
                     try self.emitByte(ns_idx);
                     try self.emitByte(name_idx);
-                    try self.emitByte(@intCast(v.arguments.len));
+                    try self.emitByte(0);
                 } else {
-                    const ns_idx = try self.emitStringConstant(v.namespace);
+                    const first_idx = try self.emitStringConstant(pa.path[0]);
                     try self.emitOp(.OP_GET_GLOBAL);
+                    try self.emitByte(first_idx);
+
+                    for (pa.path[1..]) |segment| {
+                        const seg_idx = try self.emitStringConstant(segment);
+                        try self.emitOp(.OP_GET_PROPERTY);
+                        try self.emitByte(seg_idx);
+                    }
+                }
+            },
+            .PathCall => |pc| {
+                const maybe_variants = if (pc.path.len == 2) self.types_registry.get(pc.path[0]) else null;
+                if (maybe_variants) |variants| {
+                    var found = false;
+                    for (variants) |variant| {
+                        if (std.mem.eql(u8, variant.name, pc.path[1])) {
+                            if (variant.params.len != pc.arguments.len) {
+                                std.debug.print("Compile Error: Variant '{s}::{s}' expects {d} arguments but got {d}.\n", .{ pc.path[0], pc.path[1], variant.params.len, pc.arguments.len });
+                                return error.CompileError;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        std.debug.print("Compile Error: Type '{s}' has no variant '{s}'.\n", .{ pc.path[0], pc.path[1] });
+                        return error.CompileError;
+                    }
+
+                    for (pc.arguments) |arg| {
+                        try self.compile(arg);
+                    }
+
+                    const ns_idx = try self.emitStringConstant(pc.path[0]);
+                    const name_idx = try self.emitStringConstant(pc.path[1]);
+
+                    try self.emitOp(.OP_BUILD_VARIANT);
                     try self.emitByte(ns_idx);
+                    try self.emitByte(name_idx);
+                    try self.emitByte(@intCast(pc.arguments.len));
+                } else {
+                    const first_idx = try self.emitStringConstant(pc.path[0]);
+                    try self.emitOp(.OP_GET_GLOBAL);
+                    try self.emitByte(first_idx);
 
-                    const func_idx = try self.emitStringConstant(v.variant);
-                    try self.emitOp(.OP_GET_PROPERTY);
-                    try self.emitByte(func_idx);
+                    for (pc.path[1..]) |segment| {
+                        const seg_idx = try self.emitStringConstant(segment);
+                        try self.emitOp(.OP_GET_PROPERTY);
+                        try self.emitByte(seg_idx);
+                    }
 
-                    for (v.arguments) |arg| {
+                    for (pc.arguments) |arg| {
                         try self.compile(arg);
                     }
 
                     try self.emitOp(.OP_CALL);
-                    try self.emitByte(@intCast(v.arguments.len));
+                    try self.emitByte(@intCast(pc.arguments.len));
                 }
             },
             .String => |s| {

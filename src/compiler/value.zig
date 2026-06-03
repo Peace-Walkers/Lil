@@ -14,6 +14,41 @@ pub const Value = union(ValueType) {
     Number: i64,
     Object: *Obj,
 
+    pub fn asString(self: Value) ?[]const u8 {
+        if (self == .Object and self.Object.obj_type == .String)
+            return self.Object.toString().chars;
+        return null;
+    }
+
+    pub fn asNumber(self: Value) ?i64 {
+        if (self == .Number) return self.Number;
+        return null;
+    }
+
+    pub fn asTable(self: Value) ?*TableObj {
+        if (self == .Object and self.Object.obj_type == .Table)
+            return self.Object.toTable();
+        return null;
+    }
+
+    pub fn asFunction(self: Value) ?*FunctionObj {
+        if (self == .Object and self.Object.obj_type == .Function)
+            return self.Object.toFunction();
+        return null;
+    }
+
+    pub fn asVariant(self: Value) ?*VariantObj {
+        if (self == .Object and self.Object.obj_type == .Variant)
+            return self.Object.toVariant();
+        return null;
+    }
+
+    pub fn asNative(self: Value) ?*ObjNative {
+        if (self == .Object and self.Object.obj_type == .Native)
+            return self.Object.toNative();
+        return null;
+    }
+
     pub fn print(self: Value, indent: usize) void {
         switch (self) {
             .Null => std.debug.print("null", .{}),
