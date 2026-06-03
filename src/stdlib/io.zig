@@ -6,9 +6,7 @@ const VariantObj = value_mod.VariantObj;
 const TableObj = value_mod.TableObj;
 const Value = value_mod.Value;
 
-pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
-    // _ = vm;
-    const v: *VM = @ptrCast(@alignCast(vm));
+fn internalPrint(v: *VM, arg_count: u8, args: [*]Value, newline: bool) Value {
     if (arg_count == 0) {
         std.debug.print("\n", .{});
         return .Null;
@@ -48,7 +46,21 @@ pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     } else {
         args[0].print(0);
     }
+
+    if (newline) std.debug.print("\n", .{});
+
     return .Null;
+}
+
+pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    // _ = vm;
+    const v: *VM = @ptrCast(@alignCast(vm));
+    return internalPrint(v, arg_count, args, false);
+}
+
+pub fn println(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+    return internalPrint(v, arg_count, args, true);
 }
 
 pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {

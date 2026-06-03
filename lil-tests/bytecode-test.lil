@@ -18,5 +18,4 @@ mut i = 10
 
 while i:
   i = i - 1
-  io::print("i = ")
-  io::println(i)
+  io::println("i = {}", i)

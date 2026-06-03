@@ -101,6 +101,13 @@ pub const VM = struct {
             .name = "print",
         };
 
+        var println_native = try allocator.create(ObjNative);
+        println_native.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = stdlib.io.println,
+            .name = "println",
+        };
+
         var read_native = try allocator.create(ObjNative);
         read_native.* = .{
             .obj = .{ .obj_type = .Native, .next = null },
@@ -110,6 +117,7 @@ pub const VM = struct {
 
         try io_module.fields.put("read", .{ .Object = &read_native.obj });
         try io_module.fields.put("print", .{ .Object = &print_native.obj });
+        try io_module.fields.put("println", .{ .Object = &println_native.obj });
         try vm.globals.put("io", .{ .Object = &io_module.obj });
 
         try vm.table_methods.put("push", stdlib.table.push);
