@@ -135,6 +135,54 @@ pub const VM = struct {
         return vm;
     }
 
+    pub fn eval(self: *Self, source: []const u8) !void {
+        const lexer = @import("../compiler/lexer.zig");
+        const parser = @import("../compiler/parser.zig");
+        const compiler = @import("../compiler/compiler.zig");
+
+        var scanner = lexer.Lexer.init(source);
+        var p = parser.Parser.init(&scanner, self.allocator);
+        const ast_root = try p.parse();
+
+        if (p.had_error) return error.CompileError;
+
+        var chunk = chunk_mod.Chunk.init(self.allocator);
+        var comp = compiler.Compiler.init(self.allocator, &chunk);
+
+        try comp.compile(ast_root);
+        try chunk.write(@intFromEnum(chunk_mod.OpCode.OP_RETURN), 0);
+
+        const script_function = try self.allocator.create(FunctionObj);
+        script_function.* = .{
+            .obj = .{ .obj_type = .Function, .next = null },
+            .arity = 0,
+            .chunk = chunk,
+            .name = null,
+            .can_fail = true,
+        };
+
+        try self.interpret(script_function);
+    }
+
+    pub fn setGlobal(self: *Self, name: []const u8, value: Value) !void {
+        try self.globals.put(name, value);
+    }
+
+    pub fn createNative(self: *Self, name: []const u8, func: NativeFn) !Value {
+        const native_obj = try self.allocator.create(ObjNative);
+        native_obj.* = .{
+            .obj = .{ .obj_type = .Native, .next = null },
+            .function = func,
+            .name = name,
+        };
+        return .{ .Object = &native_obj.obj };
+    }
+
+    pub fn bindNative(self: *Self, table: *TableObj, name: []const u8, func: NativeFn) !void {
+        const native_val = try self.createNative(name, func);
+        try table.fields.put(name, native_val);
+    }
+
     pub fn deinit(self: *Self) void {
         self.globals.deinit();
     }

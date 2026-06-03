@@ -106,14 +106,12 @@ pub const Node = union(enum) {
         variants: []const Variant,
     },
 
-    VariantAccess: struct {
-        namespace: []const u8,
-        variant: []const u8,
+    PathAccess: struct {
+        path: []const []const u8,
     },
 
-    VariantCall: struct {
-        namespace: []const u8,
-        variant: []const u8,
+    PathCall: struct {
+        path: []const []const u8,
         arguments: []const Node,
     },
 

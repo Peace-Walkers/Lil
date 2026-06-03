@@ -217,15 +217,20 @@ pub const Parser = struct {
                     } };
                 }
             } else if (self.match(.DoubleColon)) {
-                if (expr != .Identifier) {
-                    std.debug.print("Syntax error on line {d}: Expected type name before '::'.\n", .{self.current.line});
+                var path: std.ArrayList([]const u8) = .empty;
+
+                if (expr == .Identifier) {
+                    try path.append(self.arena, expr.Identifier);
+                } else if (expr == .PathAccess) {
+                    for (expr.PathAccess.path) |p| try path.append(self.arena, p);
+                } else {
+                    std.debug.print("Syntax error on line {d}: Expected identifier before '::'.\n", .{self.current.line});
                     self.had_error = true;
                     return error.SyntaxError;
                 }
-                const namespace_name = expr.Identifier;
 
-                try self.consume(.Identifier, "Expected variant name after '::'.");
-                const variant_name = self.previous.lexeme;
+                try self.consume(.Identifier, "Expected name after '::'.");
+                try path.append(self.arena, self.previous.lexeme);
 
                 if (self.match(.LParen)) {
                     var args: std.ArrayList(ast.Node) = .empty;
@@ -236,17 +241,15 @@ pub const Parser = struct {
                             if (!self.match(.Comma)) break;
                         }
                     }
-                    try self.consume(.RParen, "Expected ')' after variant arguments.");
+                    try self.consume(.RParen, "Expected ')' after arguments.");
 
-                    expr = .{ .VariantCall = .{
-                        .namespace = namespace_name,
-                        .variant = variant_name,
+                    expr = .{ .PathCall = .{
+                        .path = try path.toOwnedSlice(self.arena),
                         .arguments = try args.toOwnedSlice(self.arena),
                     } };
                 } else {
-                    expr = .{ .VariantAccess = .{
-                        .namespace = namespace_name,
-                        .variant = variant_name,
+                    expr = .{ .PathAccess = .{
+                        .path = try path.toOwnedSlice(self.arena),
                     } };
                 }
             } else if (self.match(.LBracket)) {
@@ -543,11 +546,20 @@ pub const Parser = struct {
                 .Get => |g| {
                     return .{ .Set = .{ .object = g.object, .name = g.name, .value = heap_node } };
                 },
-                .VariantAccess => |v| {
-                    const ns_ptr = try self.arena.create(ast.Node);
-                    ns_ptr.* = .{ .Identifier = v.namespace };
+                .PathAccess => |pa| {
+                    if (pa.path.len < 2) return error.SyntaxError;
 
-                    return .{ .Set = .{ .object = ns_ptr, .name = v.variant, .value = heap_node } };
+                    var obj_node: ast.Node = undefined;
+                    if (pa.path.len == 2) {
+                        obj_node = .{ .Identifier = pa.path[0] };
+                    } else {
+                        obj_node = .{ .PathAccess = .{ .path = pa.path[0 .. pa.path.len - 1] } };
+                    }
+
+                    const obj_ptr = try self.arena.create(ast.Node);
+                    obj_ptr.* = obj_node;
+
+                    return .{ .Set = .{ .object = obj_ptr, .name = pa.path[pa.path.len - 1], .value = heap_node } };
                 },
                 else => {
                     std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
