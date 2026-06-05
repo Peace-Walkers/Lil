@@ -451,13 +451,20 @@ pub const VM = struct {
     pub fn interpret(self: *Self, function: *FunctionObj) anyerror!void {
         self.push(.{ .Object = &function.obj });
 
-        self.frames[0] = .{
+        const frame_idx = self.frame_count;
+
+        self.frames[frame_idx] = .{
             .function = function,
             .ip = 0,
             .slot_offset = self.stack_top - 1,
         };
-        self.frame_count = 1;
-        return self.run();
+        self.frame_count += 1;
+
+        const prev_halt = self.halt_frame_count;
+        self.halt_frame_count = frame_idx;
+        try self.run();
+
+        self.halt_frame_count = prev_halt;
     }
 
     fn run(self: *Self) !void {
