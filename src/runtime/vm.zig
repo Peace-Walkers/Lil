@@ -17,6 +17,7 @@ const stdlib = @import("../stdlib/stdlib.zig");
 pub const VmError = error{
     CompileError,
     RuntimeError,
+    SyntaxError,
 };
 
 const CallFrame = struct {
@@ -33,6 +34,8 @@ pub const VmIo = struct {
     out: *std.Io.Writer,
 };
 
+pub const ResolveFn = *const fn (vm: *VM, module_name: []const u8) anyerror![]const u8;
+
 pub const VM = struct {
     const Self = @This();
 
@@ -48,6 +51,9 @@ pub const VM = struct {
     table_methods: std.StringHashMap(NativeFn),
     string_methods: std.StringHashMap(NativeFn),
     result_methods: std.StringHashMap(NativeFn),
+
+    import_resolver: ?ResolveFn,
+    loaded_modules: std.StringHashMap(Value),
 
     globals: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
@@ -68,6 +74,8 @@ pub const VM = struct {
             .result_methods = std.StringHashMap(NativeFn).init(allocator),
             .halt_frame_count = null,
             .io = io,
+            .loaded_modules = std.StringHashMap(Value).init(allocator),
+            .import_resolver = null,
         };
 
         try vm.table_methods.put("push", stdlib.table.push);
@@ -131,6 +139,51 @@ pub const VM = struct {
     pub fn bindNative(self: *Self, table: *TableObj, name: []const u8, func: NativeFn) !void {
         const native_val = try self.createNative(name, func);
         try table.fields.put(name, native_val);
+    }
+
+    pub fn evalModule(self: *Self, source: []const u8) !Value {
+        const lexer = @import("../compiler/lexer.zig");
+        const parser = @import("../compiler/parser.zig");
+        const compiler = @import("../compiler/compiler.zig");
+
+        var scanner = lexer.Lexer.init(source);
+        var p = parser.Parser.init(&scanner, self.allocator);
+        const ast_root = try p.parse();
+
+        if (p.had_error) return error.CompileError;
+
+        var chunk = chunk_mod.Chunk.init(self.allocator);
+        var comp = compiler.Compiler.init(self.allocator, &chunk);
+        try comp.compile(ast_root);
+        try chunk.write(@intFromEnum(chunk_mod.OpCode.OP_RETURN), 0);
+
+        const script_function = try self.allocator.create(FunctionObj);
+        script_function.* = .{
+            .obj = .{ .obj_type = .Function, .next = null },
+            .arity = 0,
+            .chunk = chunk,
+            .name = null,
+            .can_fail = true,
+        };
+
+        const old_globals = self.globals;
+
+        self.globals = try old_globals.clone();
+
+        try self.interpret(script_function);
+
+        var module_table = try self.createTable();
+        var it = self.globals.iterator();
+        while (it.next()) |entry| {
+            if (!old_globals.contains(entry.key_ptr.*)) {
+                try module_table.fields.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        }
+
+        self.globals.deinit();
+        self.globals = old_globals;
+
+        return .{ .Object = &module_table.obj };
     }
 
     pub fn deinit(self: *Self) void {
@@ -395,7 +448,7 @@ pub const VM = struct {
         return frame.function.chunk.constants.items[self.readByte()];
     }
 
-    pub fn interpret(self: *Self, function: *FunctionObj) !void {
+    pub fn interpret(self: *Self, function: *FunctionObj) anyerror!void {
         self.push(.{ .Object = &function.obj });
 
         self.frames[0] = .{
@@ -477,6 +530,35 @@ pub const VM = struct {
                     }
 
                     self.push(.{ .Object = &table_obj.obj });
+                },
+                .OP_IMPORT => {
+                    const path_val = self.pop();
+                    if (path_val != .Object or path_val.Object.obj_type != .String) {
+                        std.debug.print("Runtime Error: Import path must be a string.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const module_name = path_val.Object.toString().chars;
+
+                    if (self.loaded_modules.get(module_name)) |module_val| {
+                        self.push(module_val);
+                        continue;
+                    }
+
+                    if (self.import_resolver == null) {
+                        std.debug.print("Runtime Error: Import failed: no module solver registred.\n", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const source = self.import_resolver.?(self, module_name) catch {
+                        std.debug.print("Runtime Error: Failed to load module '{s}'.\n", .{module_name});
+                        return error.RuntimeError;
+                    };
+
+                    const module_val = try self.evalModule(source);
+
+                    try self.loaded_modules.put(module_name, module_val);
+                    self.push(module_val);
                 },
                 .OP_GET_PROPERTY => {
                     const name_val = self.readConstant();

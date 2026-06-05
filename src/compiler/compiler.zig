@@ -250,6 +250,10 @@ pub const Compiler = struct {
                 try self.emitByte(@intCast(array_count));
                 try self.emitByte(@intCast(dict_count));
             },
+            .Import => |i| {
+                try self.compile(i.path.*);
+                try self.emitOp(.OP_IMPORT);
+            },
             .PathAccess => |pa| {
                 const maybe_variants = if (pa.path.len == 2) self.types_registry.get(pa.path[0]) else null;
                 if (maybe_variants) |variants| {

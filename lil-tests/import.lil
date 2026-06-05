@@ -1,0 +1,5 @@
+let json = import("https://github.com/pepedinho/net")
+
+let src = "oui"
+
+let body = json::parse(src)
