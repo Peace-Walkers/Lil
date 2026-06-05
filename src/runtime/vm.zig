@@ -34,7 +34,12 @@ pub const VmIo = struct {
     out: *std.Io.Writer,
 };
 
-pub const ResolveFn = *const fn (vm: *VM, module_name: []const u8) anyerror![]const u8;
+pub const ResolvedModule = struct {
+    source: []const u8,
+    file_path: []const u8,
+};
+
+pub const ResolveFn = *const fn (vm: *VM, module_name: []const u8) anyerror!ResolvedModule;
 
 pub const VM = struct {
     const Self = @This();
@@ -54,6 +59,8 @@ pub const VM = struct {
 
     import_resolver: ?ResolveFn,
     loaded_modules: std.StringHashMap(Value),
+    module_stack: [64][]const u8 = undefined,
+    module_depth: usize = 0,
 
     globals: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
@@ -557,12 +564,25 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
 
-                    const source = self.import_resolver.?(self, module_name) catch {
+                    const current_path = if (self.module_depth > 0)
+                        self.module_stack[self.module_depth - 1]
+                    else
+                        ".";
+
+                    const resolved = self.import_resolver.?(self, module_name, current_path) catch {
                         std.debug.print("Runtime Error: Failed to load module '{s}'.\n", .{module_name});
                         return error.RuntimeError;
                     };
 
-                    const module_val = try self.evalModule(source);
+                    self.module_stack[self.module_path] = resolved.file_path;
+                    self.module_depth += 1;
+
+                    const module_val = self.evalModule(resolved.source) catch |err| {
+                        self.module_depth -= 1;
+                        return err;
+                    };
+
+                    self.module_depth -= 1;
 
                     try self.loaded_modules.put(module_name, module_val);
                     self.push(module_val);
