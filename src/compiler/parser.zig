@@ -1010,13 +1010,14 @@ test "parser: variant call at EOF" {
 
     const root = try setupParserTest(arena.allocator(), source);
 
-    const call_node = root.Root.statements[0];
+    const call_node = root.Root.statements[0].ExpressionStatement.*;
 
-    try std.testing.expectEqual(.VariantCall, std.meta.activeTag(call_node));
-    try std.testing.expectEqualStrings("io", call_node.VariantCall.namespace);
-    try std.testing.expectEqualStrings("print", call_node.VariantCall.variant);
+    try std.testing.expectEqual(.PathCall, std.meta.activeTag(call_node));
+    try std.testing.expectEqual(call_node.PathCall.path.len, 2);
+    try std.testing.expectEqualStrings("io", call_node.PathCall.path[0]);
+    try std.testing.expectEqualStrings("print", call_node.PathCall.path[1]);
 
-    const args = call_node.VariantCall.arguments;
+    const args = call_node.PathCall.arguments;
     try std.testing.expectEqual(@as(usize, 1), args.len);
 
     try std.testing.expectEqual(.Identifier, std.meta.activeTag(args[0]));
