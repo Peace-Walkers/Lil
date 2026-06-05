@@ -39,7 +39,7 @@ pub const ResolvedModule = struct {
     file_path: []const u8,
 };
 
-pub const ResolveFn = *const fn (vm: *VM, module_name: []const u8) anyerror!ResolvedModule;
+pub const ResolveFn = *const fn (vm: *VM, module_name: []const u8, caller_path: []const u8) anyerror!ResolvedModule;
 
 pub const VM = struct {
     const Self = @This();
@@ -574,7 +574,7 @@ pub const VM = struct {
                         return error.RuntimeError;
                     };
 
-                    self.module_stack[self.module_path] = resolved.file_path;
+                    self.module_stack[self.module_depth] = resolved.file_path;
                     self.module_depth += 1;
 
                     const module_val = self.evalModule(resolved.source) catch |err| {
