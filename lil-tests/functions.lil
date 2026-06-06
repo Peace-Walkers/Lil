@@ -43,3 +43,8 @@ io::print(ages)
 io::print(doubled)
 
 io::println(table)
+
+fn calculate(a, b):
+  return a + b
+
+let sum = calculate(ages, 10)

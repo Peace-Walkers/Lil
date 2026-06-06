@@ -455,6 +455,39 @@ pub const VM = struct {
         return frame.function.chunk.constants.items[self.readByte()];
     }
 
+    pub fn panic(self: *Self, comptime format: []const u8, args: anytype) void {
+        std.debug.print("\n[Runtime Error] ", .{});
+        std.debug.print(format, args);
+        std.debug.print("\n", .{});
+
+        std.debug.print("Stack trace:\n", .{});
+
+        var i: usize = self.frame_count;
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.frames[i];
+            const function = frame.function;
+
+            const instruction_idx = if (frame.ip > 0) frame.ip - 1 else 0;
+
+            const line = if (function.chunk.lines.items.len > instruction_idx)
+                function.chunk.lines.items[instruction_idx]
+            else
+                0;
+
+            const function_name = if (function.name) |n| n.chars else "<main>";
+
+            std.debug.print("  at {s}() line {d}\n", .{ function_name, line });
+        }
+
+        const current_module = if (self.module_depth > 0)
+            self.module_stack[self.module_depth - 1]
+        else
+            "unknown";
+
+        std.debug.print("  in module: {s}\n\n", .{current_module});
+    }
+
     pub fn interpret(self: *Self, function: *FunctionObj) anyerror!void {
         self.push(.{ .Object = &function.obj });
 
@@ -517,7 +550,7 @@ pub const VM = struct {
                     if (self.globals.get(name)) |value| {
                         self.push(value);
                     } else {
-                        std.debug.print("Runtime Error: undefined var: {s}\n", .{name});
+                        self.panic("Undefined variable '{s}'\n", .{name});
                         return error.RuntimeError;
                     }
                 },
@@ -738,9 +771,7 @@ pub const VM = struct {
                     const a = self.pop();
 
                     if (a != .Number or b != .Number) {
-                        a.print(0);
-                        b.print(0);
-                        std.debug.print("Runtime Error: Operand must be numbers.\n", .{});
+                        self.panic("Operand must be numbers, got '{s}' and '{s}'.", .{ @tagName(a), @tagName(b) });
                         return error.RuntimeError;
                     }
 
@@ -875,12 +906,12 @@ pub const VM = struct {
                             const func = callee.Object.toFunction();
 
                             if (func.arity != 255 and arg_count != func.arity) {
-                                std.debug.print("Runtime Error: expected {d} arg(s) receive {d}\n", .{ func.arity, arg_count });
+                                self.panic("Expected {d} arguments but got {d}.", .{ func.arity, arg_count });
                                 return error.RuntimeError;
                             }
 
                             if (self.frame_count == 64) {
-                                std.debug.print("Runtime Error: Stack Overflow\n", .{});
+                                self.panic("Stack Overflow\n", .{});
                                 return error.RuntimeError;
                             }
 
@@ -948,7 +979,7 @@ pub const VM = struct {
                     const object_val = self.pop();
 
                     if (index_val != .Number) {
-                        std.debug.print("Runtime Error: Index must be a number.\n", .{});
+                        self.panic("Index must be a number but found {s}", .{@tagName(index_val)});
                         return error.RuntimeError;
                     }
 
@@ -958,7 +989,7 @@ pub const VM = struct {
                         const table = object_val.Object.toTable();
 
                         if (index >= table.elements.items.len) {
-                            std.debug.print("Runtime Error: Array index out of bounds.\n", .{});
+                            self.panic("Array index out of bounds: length is {d} but index is {d}.", .{ table.elements.items.len, index });
                             return error.RuntimeError;
                         }
                         self.push(table.elements.items[index]);
