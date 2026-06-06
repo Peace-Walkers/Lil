@@ -476,6 +476,7 @@ pub const Parser = struct {
         }
 
         if (self.match(.Return)) {
+            const line = self.previous.line;
             var heap_value: ?*ast.Node = null;
 
             if (self.current.tag != .NewLine and self.current.tag != .Eof) {
@@ -487,10 +488,11 @@ pub const Parser = struct {
                 heap_value = raw_ptr;
             }
             try self.consume(.NewLine, "Expected newline after return statement");
-            return .{ .ReturnStatement = .{ .value = heap_value } };
+            return .{ .ReturnStatement = .{ .value = heap_value, .line = line } };
         }
 
         if (self.match(.Let)) {
+            const line = self.previous.line;
             try self.consume(.Identifier, "Expected variable name after 'let'.");
             const name = self.previous.lexeme;
 
@@ -505,10 +507,11 @@ pub const Parser = struct {
                 try self.consume(.NewLine, "Expected newline after variable declaration.");
             }
 
-            return .{ .LetDeclaration = .{ .name = name, .initializer = heap_node } };
+            return .{ .LetDeclaration = .{ .name = name, .initializer = heap_node, .line = line } };
         }
 
         if (self.match(.Mut)) {
+            const line = self.previous.line;
             try self.consume(.Identifier, "Expected variable name after 'let'.");
             const name = self.previous.lexeme;
 
@@ -523,10 +526,11 @@ pub const Parser = struct {
                 try self.consume(.NewLine, "Expected newline after variable declaration.");
             }
 
-            return .{ .MutDeclaration = .{ .name = name, .initializer = heap_node } };
+            return .{ .MutDeclaration = .{ .name = name, .initializer = heap_node, .line = line } };
         }
 
         const expr = try self.parse_expr();
+        const line = self.previous.line;
 
         if (self.match(.Equals)) {
             // const name = expr.Identifier;
@@ -541,10 +545,10 @@ pub const Parser = struct {
 
             switch (expr) {
                 .Identifier => |name| {
-                    return .{ .Assignment = .{ .name = name, .value = heap_node } };
+                    return .{ .Assignment = .{ .name = name, .value = heap_node, .line = line } };
                 },
                 .Get => |g| {
-                    return .{ .Set = .{ .object = g.object, .name = g.name, .value = heap_node } };
+                    return .{ .Set = .{ .object = g.object, .name = g.name, .value = heap_node, .line = line } };
                 },
                 .PathAccess => |pa| {
                     if (pa.path.len < 2) return error.SyntaxError;
@@ -559,7 +563,7 @@ pub const Parser = struct {
                     const obj_ptr = try self.arena.create(ast.Node);
                     obj_ptr.* = obj_node;
 
-                    return .{ .Set = .{ .object = obj_ptr, .name = pa.path[pa.path.len - 1], .value = heap_node } };
+                    return .{ .Set = .{ .object = obj_ptr, .name = pa.path[pa.path.len - 1], .value = heap_node, .line = line } };
                 },
                 else => {
                     std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
@@ -578,7 +582,7 @@ pub const Parser = struct {
         const expr_ptr = try self.arena.create(ast.Node);
         expr_ptr.* = expr;
 
-        return .{ .ExpressionStatement = expr_ptr };
+        return .{ .ExpressionStatement = .{ .expr = expr_ptr, .line = self.previous.line } };
     }
 
     fn parse_primary(self: *Self) ParseError!ast.Node {

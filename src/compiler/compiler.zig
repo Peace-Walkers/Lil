@@ -26,6 +26,8 @@ pub const Compiler = struct {
     local_count: usize,
     scope_depth: usize,
 
+    current_line: usize = 1,
+
     can_fail_context: bool = true,
 
     known_globals: std.StringHashMap(bool),
@@ -58,7 +60,7 @@ pub const Compiler = struct {
     }
 
     fn emitByte(self: *Self, byte: u8) !void {
-        try self.current_chunk.write(byte, 0);
+        try self.current_chunk.write(byte, self.current_line);
     }
 
     fn emitOp(self: *Self, op: Opcode) !void {
@@ -380,6 +382,7 @@ pub const Compiler = struct {
                     .Slash => try self.emitOp(.OP_DIVIDE),
                     .EqualsEquals => try self.emitOp(.OP_EQUAL),
                     .Less => try self.emitOp(.OP_LESS),
+                    .Greater => try self.emitOp(.OP_GREATER),
                     else => {
                         std.debug.print("Unsupported operator : {s}\n", .{@tagName(b.operator)});
                         return error.UnsupportedOperator;
@@ -395,9 +398,11 @@ pub const Compiler = struct {
                 try self.emitByte(name_idx);
             },
             .LetDeclaration => |decl| {
+                self.current_line = decl.line;
                 try self.compileVariable(decl.name, decl.initializer.*, false);
             },
             .MutDeclaration => |decl| {
+                self.current_line = decl.line;
                 try self.compileVariable(decl.name, decl.initializer.*, true);
             },
             .Identifier => |name| {
@@ -435,6 +440,7 @@ pub const Compiler = struct {
                 self.patchJump(else_jump);
             },
             .Set => |s| {
+                self.current_line = s.line;
                 try self.compile(s.object.*);
                 try self.compile(s.value.*);
 
@@ -445,7 +451,8 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_POP);
             },
             .ExpressionStatement => |e| {
-                try self.compile(e.*);
+                self.current_line = e.line;
+                try self.compile(e.expr.*);
                 try self.emitOp(.OP_POP);
             },
             .MatchExpression => |m| {
@@ -513,6 +520,7 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_POP);
             },
             .Assignment => |assign| {
+                self.current_line = assign.line;
                 if (self.resolveLocal(assign.name)) |local_index| {
                     if (!self.locals[local_index].is_mut) {
                         std.debug.print("Error: you cannot mutate a constant variable: '{s}'.\n", .{assign.name});
@@ -557,6 +565,7 @@ pub const Compiler = struct {
                 try self.compileFunctionBody(lm);
             },
             .ReturnStatement => |ret| {
+                self.current_line = ret.line;
                 if (ret.value) |val| {
                     try self.compile(val.*);
                 } else {

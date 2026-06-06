@@ -27,7 +27,10 @@ pub const Node = union(enum) {
     String: []const u8,
     Identifier: []const u8,
     Boolean: bool,
-    ExpressionStatement: *Node,
+    ExpressionStatement: struct {
+        expr: *Node,
+        line: usize,
+    },
 
     Import: struct {
         path: *Node,
@@ -40,6 +43,7 @@ pub const Node = union(enum) {
     Assignment: struct {
         name: []const u8,
         value: *Node,
+        line: usize,
     },
 
     Binary: struct {
@@ -51,10 +55,12 @@ pub const Node = union(enum) {
     LetDeclaration: struct {
         name: []const u8,
         initializer: *Node,
+        line: usize,
     },
     MutDeclaration: struct {
         name: []const u8,
         initializer: *Node,
+        line: usize,
     },
     Block: struct {
         statements: []Node,
@@ -80,6 +86,7 @@ pub const Node = union(enum) {
 
     ReturnStatement: struct {
         value: ?*Node,
+        line: usize,
     },
 
     Call: struct {
@@ -133,6 +140,7 @@ pub const Node = union(enum) {
         object: *Node,
         name: []const u8,
         value: *Node,
+        line: usize,
     },
 
     Index: struct {
