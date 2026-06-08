@@ -1,0 +1,18 @@
+fn! test_net():
+  io::println("Fetching data from internet...")
+
+  let response = net::fetch("https://api.github.com/repos/Peace-Walkers/Lil")?
+
+  io::println("Status code: {}", response.status)
+  io::println("body size: {}", response.body.len())
+
+  if response.body.len() > 150:
+    io::println("{}", response.body.split("")[0])
+  else:
+    io::println("{}", response.body)
+
+  return response.status
+
+
+let status = test_net()?
+io::println("\nFinal Result: {}", status)
