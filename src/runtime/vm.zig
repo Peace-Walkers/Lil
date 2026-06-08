@@ -10,6 +10,7 @@ const TableObj = value_mod.TableObj;
 const VariantObj = value_mod.VariantObj;
 const ObjNative = value_mod.ObjNative;
 const NativeFn = value_mod.NativeFn;
+const ObjType = value_mod.ObjType;
 const debug = @import("../compiler/debug.zig");
 
 const stdlib = @import("../stdlib/stdlib.zig");
@@ -262,6 +263,21 @@ pub const VM = struct {
         payload_slice[0] = .{ .Object = &err_str.obj };
         const variant_obj = try self.createVariant(ns_str, name_str, payload_slice);
         return .{ .Object = &variant_obj.obj };
+    }
+
+    /// Search in Table.fields specific key and check it type
+    pub fn expectField(self: *Self, table: *TableObj, name: []const u8, expected_type: ObjType) Value!Value {
+        const value = table.fields.get(name) orelse self.createResultErr(std.fmt.allocPrint(self.allocator, "Missing expected key '{s}' table.", name));
+
+        if (value != .Object) {
+            return error.self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value) }));
+        }
+
+        if (value.Object.obj_type != expected_type.Object.obj_type) {
+            return error.self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value.Object.obj_type) }));
+        }
+
+        return value;
     }
 
     fn readByte(self: *Self) u8 {
