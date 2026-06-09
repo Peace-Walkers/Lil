@@ -4,11 +4,11 @@ const OpCode = chunk_mod.OpCode;
 const Chunk = chunk_mod.Chunk;
 const value_mod = @import("../compiler/value.zig");
 const Value = value_mod.Value;
-const ObjString = value_mod.ObjString;
+const StringObj = value_mod.StringObj;
 const FunctionObj = value_mod.FunctionObj;
 const TableObj = value_mod.TableObj;
 const VariantObj = value_mod.VariantObj;
-const ObjNative = value_mod.ObjNative;
+const NativeObj = value_mod.NativeObj;
 const NativeFn = value_mod.NativeFn;
 const ObjType = value_mod.ObjType;
 const debug = @import("../compiler/debug.zig");
@@ -135,7 +135,7 @@ pub const VM = struct {
     }
 
     pub fn createNative(self: *Self, name: []const u8, func: NativeFn) !Value {
-        const native_obj = try self.allocator.create(ObjNative);
+        const native_obj = try self.allocator.create(NativeObj);
         native_obj.* = .{
             .obj = .{ .obj_type = .Native, .next = null },
             .function = func,
@@ -212,8 +212,8 @@ pub const VM = struct {
         return self.stack[self.stack_top];
     }
 
-    pub fn createString(self: *Self, chars: []const u8) !*ObjString {
-        const obj_str = try self.allocator.create(ObjString);
+    pub fn createString(self: *Self, chars: []const u8) !*StringObj {
+        const obj_str = try self.allocator.create(StringObj);
         obj_str.* = .{
             .obj = .{ .obj_type = .String, .next = null },
             .chars = chars,
@@ -231,7 +231,7 @@ pub const VM = struct {
         return table_obj;
     }
 
-    pub fn createVariant(self: *Self, namespace: *ObjString, name: *ObjString, payload: []Value) !*VariantObj {
+    pub fn createVariant(self: *Self, namespace: *StringObj, name: *StringObj, payload: []Value) !*VariantObj {
         const variant_obj = try self.allocator.create(VariantObj);
         variant_obj.* = .{
             .obj = .{ .obj_type = .Variant, .next = null },
@@ -266,15 +266,15 @@ pub const VM = struct {
     }
 
     /// Search in Table.fields specific key and check it type
-    pub fn expectField(self: *Self, table: *TableObj, name: []const u8, expected_type: ObjType) Value!Value {
+    pub fn expectField(self: *Self, table: *TableObj, name: []const u8, expected_type: ObjType) !Value {
         const value = table.fields.get(name) orelse self.createResultErr(std.fmt.allocPrint(self.allocator, "Missing expected key '{s}' table.", name));
 
         if (value != .Object) {
-            return error.self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value) }));
+            return self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value) }));
         }
 
         if (value.Object.obj_type != expected_type.Object.obj_type) {
-            return error.self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value.Object.obj_type) }));
+            return self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value.Object.obj_type) }));
         }
 
         return value;
@@ -409,6 +409,12 @@ pub const VM = struct {
                         const native_obj_b = b_obj.toNative();
 
                         return native_obj_a.function == native_obj_b.function;
+                    },
+                    .Map => {
+                        const map_a = a_obj.toMap();
+                        const map_b = b_obj.toMap();
+
+                        return map_a == map_b;
                     },
                 }
             },

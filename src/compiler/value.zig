@@ -43,7 +43,7 @@ pub const Value = union(ValueType) {
         return null;
     }
 
-    pub fn asNative(self: Value) ?*ObjNative {
+    pub fn asNative(self: Value) ?*NativeObj {
         if (self == .Object and self.Object.obj_type == .Native)
             return self.Object.toNative();
         return null;
@@ -65,13 +65,14 @@ pub const ObjType = enum {
     Function,
     Variant,
     Native,
+    Map,
 };
 
 pub const Obj = struct {
     obj_type: ObjType,
     next: ?*Obj,
 
-    pub fn toString(self: *Obj) *ObjString {
+    pub fn toString(self: *Obj) *StringObj {
         return @fieldParentPtr("obj", self);
     }
 
@@ -87,7 +88,11 @@ pub const Obj = struct {
         return @fieldParentPtr("obj", self);
     }
 
-    pub fn toNative(self: *Obj) *ObjNative {
+    pub fn toNative(self: *Obj) *NativeObj {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toMap(self: *Obj) *MapObj {
         return @fieldParentPtr("obj", self);
     }
 
@@ -136,6 +141,17 @@ pub const Obj = struct {
                 const native_obj = self.toNative();
                 std.debug.print("<NativeFn {s}>", .{native_obj.name});
             },
+            .Map => {
+                const map = self.toMap();
+                std.debug.print("{s}:\n", .{map.name.chars});
+                var it = map.hashmap.iterator();
+                while (it.next()) |kv| {
+                    std.debug.print("[", .{});
+                    kv.key_ptr.print(indent + 1);
+                    std.debug.print("] : ", .{});
+                    kv.value_ptr.print(indent + 1);
+                }
+            },
         }
     }
 };
@@ -143,11 +159,11 @@ pub const Obj = struct {
 fn printIndent(indent: usize) void {
     var i: usize = 0;
     while (i < indent) : (i += 1) {
-        std.debug.print("    ", .{}); // 4 espaces par niveau
+        std.debug.print("    ", .{});
     }
 }
 
-pub const ObjString = struct {
+pub const StringObj = struct {
     obj: Obj,
     chars: []const u8,
 };
@@ -162,21 +178,27 @@ pub const FunctionObj = struct {
     obj: Obj,
     arity: usize,
     chunk: Chunk,
-    name: ?*ObjString,
+    name: ?*StringObj,
     can_fail: bool,
 };
 
 pub const VariantObj = struct {
     obj: Obj,
-    namespace: ?*ObjString,
-    variant_name: *ObjString,
+    namespace: ?*StringObj,
+    variant_name: *StringObj,
     payload: []Value,
 };
 
 pub const NativeFn = *const fn (vm: *anyopaque, arg_count: u8, args: [*]Value) Value;
 
-pub const ObjNative = struct {
+pub const NativeObj = struct {
     obj: Obj,
     function: NativeFn,
     name: []const u8,
+};
+
+pub const MapObj = struct {
+    obj: Obj,
+    name: *StringObj,
+    hashmap: std.HashMap(Value, Value, Value, 80),
 };
