@@ -3,6 +3,18 @@ const value_mod = @import("../compiler/value.zig");
 const VM = @import("../runtime/vm.zig").VM;
 const Value = value_mod.Value;
 
+fn isResultErr(res: Value) bool {
+    if (res != .Object)
+        return false;
+    if (res.Object.obj_type == .Variant) {
+        const obj = res.Object.toVariant();
+        if (std.mem.eql(u8, obj.variant_name.chars, "Err"))
+            return true;
+    }
+
+    return false;
+}
+
 pub fn fetch(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 

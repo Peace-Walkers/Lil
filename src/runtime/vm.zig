@@ -266,15 +266,15 @@ pub const VM = struct {
     }
 
     /// Search in Table.fields specific key and check it type
-    pub fn expectField(self: *Self, table: *TableObj, name: []const u8, expected_type: ObjType) Value!Value {
+    pub fn expectField(self: *Self, table: *TableObj, name: []const u8, expected_type: ObjType) !Value {
         const value = table.fields.get(name) orelse self.createResultErr(std.fmt.allocPrint(self.allocator, "Missing expected key '{s}' table.", name));
 
         if (value != .Object) {
-            return error.self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value) }));
+            return self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value) }));
         }
 
         if (value.Object.obj_type != expected_type.Object.obj_type) {
-            return error.self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value.Object.obj_type) }));
+            return self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value.Object.obj_type) }));
         }
 
         return value;
