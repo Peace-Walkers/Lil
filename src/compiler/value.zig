@@ -197,8 +197,64 @@ pub const NativeObj = struct {
     name: []const u8,
 };
 
+pub const ValueContext = struct {
+    pub fn hash(self: @This(), key: Value) u64 {
+        _ = self;
+        var hasher = std.hash.Fnv1a_64.init();
+
+        switch (key) {
+            .Null => hasher.update("null"),
+            .Boolean => |b| hasher.update(if (b) "true" else "false"),
+            .Number => |n| {
+                const bytes = std.mem.asBytes(n);
+                hasher.update(bytes);
+            },
+            .Object => |obj| {
+                switch (obj.obj_type) {
+                    .String => {
+                        const str_obj = obj.toString();
+                        hasher.update(str_obj.chars);
+                    },
+                    else => {
+                        const ptr_val = @intFromPtr(obj);
+                        const bytes = std.mem.asBytes(ptr_val);
+                        hasher.update(bytes);
+                    },
+                }
+            },
+        }
+        return hasher.final();
+    }
+
+    pub fn eql(self: @This(), a: Value, b: Value) bool {
+        _ = self;
+        if (@intFromEnum(a) != @intFromEnum(b)) return false;
+
+        switch (a) {
+            .Null => return true,
+            .Boolean => |bo| return bo == b.Boolean,
+            .Number => |n| return n == b.Number,
+            .Object => |a_obj| {
+                const b_obj = b.Object;
+                if (a_obj.obj_type != b_obj.obj_type) return false;
+
+                switch (a_obj.obj_type) {
+                    .String => {
+                        const str_a = a_obj.toString().chars;
+                        const str_b = b_obj.toString().chars;
+                        return std.mem.eql(u8, str_a, str_b);
+                    },
+                    else => {
+                        return a_obj == b_obj;
+                    },
+                }
+            },
+        }
+    }
+};
+
 pub const MapObj = struct {
     obj: Obj,
     name: *StringObj,
-    hashmap: std.HashMap(Value, Value, Value, 80),
+    hashmap: std.HashMap(Value, Value, ValueContext, 80),
 };

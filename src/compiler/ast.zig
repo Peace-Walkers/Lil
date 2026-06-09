@@ -22,6 +22,11 @@ pub const MatchBranch = struct {
     body: Node,
 };
 
+pub const MapEntry = struct {
+    key: Node,
+    value: Node,
+};
+
 pub const Node = union(enum) {
     Number: i64,
     String: []const u8,
@@ -104,6 +109,10 @@ pub const Node = union(enum) {
     Table: struct {
         fields: []const TableField,
         elements: []const Node,
+    },
+
+    Map: struct {
+        entries: []MapEntry,
     },
 
     MethodCall: struct {

@@ -422,7 +422,10 @@ pub const Parser = struct {
     fn parse_table(self: *Self) !ast.Node {
         var fields: std.ArrayList(ast.TableField) = .empty;
         var elements: std.ArrayList(ast.Node) = .empty;
+        var map_entries: std.ArrayList(ast.MapEntry) = .empty;
 
+        var is_map = false;
+        var is_first = true;
         if (self.current.tag != .RBrace) {
             while (true) {
                 while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
@@ -431,7 +434,26 @@ pub const Parser = struct {
 
                 const expr = try self.parse_expr();
 
-                if (self.match(.Colon)) {
+                if (self.match(.Arrow)) {
+                    if (is_first) is_map = true;
+
+                    if (!is_map) {
+                        std.debug.print("Syntax error on line {d}: Cannot mix table fields (:) and map entries (=>).\n", .{self.current.line});
+                        self.had_error = true;
+                        return error.SyntaxError;
+                    }
+
+                    const val = try self.parse_expr();
+                    try map_entries.append(self.arena, .{ .value = val });
+                } else if (self.match(.Colon)) {
+                    if (is_first) is_map = false;
+
+                    if (is_map) {
+                        std.debug.print("Syntax error on line {d}: Cannot mix map entries (=>) and table fields (:).\n", .{self.current.line});
+                        self.had_error = true;
+                        return error.SyntaxError;
+                    }
+
                     if (expr != .Identifier) {
                         std.debug.print("Syntax error on line {d}: Table keys must be identifiers.\n", .{self.current.line});
                         self.had_error = true;
@@ -443,8 +465,18 @@ pub const Parser = struct {
                     const val = try self.parse_expr();
                     try fields.append(self.arena, .{ .key = key, .value = val });
                 } else {
+                    if (is_first) is_map = false;
+
+                    if (is_map) {
+                        std.debug.print("Syntax error on line {d}: Cannot mix map entries and raw elements.\n", .{self.current.line});
+                        self.had_error = true;
+                        return error.SyntaxError;
+                    }
+
                     try elements.append(self.arena, expr);
                 }
+
+                is_first = false;
 
                 while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
 
@@ -455,10 +487,16 @@ pub const Parser = struct {
         while (self.match(.NewLine) or self.match(.Indent) or self.match(.Dedent)) {}
         try self.consume(.RBrace, "Expected '}' to close the table.");
 
-        return .{ .Table = .{
-            .fields = try fields.toOwnedSlice(self.arena),
-            .elements = try elements.toOwnedSlice(self.arena),
-        } };
+        if (is_map) {
+            return .{ .Map = .{
+                .entries = try map_entries.toOwnedSlice(self.arena),
+            } };
+        } else {
+            return .{ .Table = .{
+                .fields = try fields.toOwnedSlice(self.arena),
+                .elements = try elements.toOwnedSlice(self.arena),
+            } };
+        }
     }
 
     fn parse_decl(self: *Self) !ast.Node {
