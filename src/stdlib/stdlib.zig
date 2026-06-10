@@ -1,8 +1,8 @@
 pub const io = @import("io.zig");
-pub const table = @import("table.zig");
 pub const fs = @import("fs.zig");
-pub const string = @import("string.zig");
-pub const variant = @import("variant.zig");
+pub const net = @import("net.zig");
+
+pub const methods = @import("methods/methods.zig");
 
 const VM = @import("../runtime/vm.zig").VM;
 
@@ -22,7 +22,15 @@ pub fn openFs(vm: *VM) !void {
     try vm.setGlobal("fs", .{ .Object = &fs_module.obj });
 }
 
+pub fn openNet(vm: *VM) !void {
+    var net_module = try vm.createTable();
+    try vm.bindNative(net_module, "fetch", net.fetch);
+
+    try vm.setGlobal("net", .{ .Object = &net_module.obj });
+}
+
 pub fn openAll(vm: *VM) !void {
     try openIo(vm);
     try openFs(vm);
+    try openNet(vm);
 }

@@ -8,7 +8,7 @@ const Chunk = chunk_mod.Chunk;
 const value_mod = @import("value.zig");
 const Value = value_mod.Value;
 const FunctionObj = value_mod.FunctionObj;
-const ObjString = value_mod.ObjString;
+const StringObj = value_mod.StringObj;
 
 pub const Local = struct {
     name: []const u8,
@@ -74,7 +74,7 @@ pub const Compiler = struct {
     }
 
     fn emitStringConstant(self: *Compiler, text: []const u8) !u8 {
-        const obj_str = try self.allocator.create(value_mod.ObjString);
+        const obj_str = try self.allocator.create(value_mod.StringObj);
         obj_str.* = .{
             .obj = .{ .obj_type = .String, .next = null },
             .chars = text,
@@ -162,7 +162,7 @@ pub const Compiler = struct {
     fn compileFunctionBody(self: *Self, fn_decl: anytype) !void {
         const is_lambda = !@hasField(@TypeOf(fn_decl), "name");
 
-        const name_obj = try self.allocator.create(ObjString);
+        const name_obj = try self.allocator.create(StringObj);
         name_obj.* = .{
             .obj = .{ .obj_type = .String, .next = null },
             .chars = if (is_lambda) "<lambda>" else fn_decl.name,
@@ -222,6 +222,9 @@ pub const Compiler = struct {
             .Boolean => |b| {
                 try self.emitConstant(.{ .Boolean = b });
             },
+            .Null => |n| {
+                try self.emitConstant(.{ .Null = n });
+            },
             .Table => |table_node| {
                 var array_count: usize = 0;
                 var dict_count: usize = table_node.fields.len;
@@ -251,6 +254,15 @@ pub const Compiler = struct {
                 try self.emitOp(.OP_BUILD_TABLE);
                 try self.emitByte(@intCast(array_count));
                 try self.emitByte(@intCast(dict_count));
+            },
+            .Map => |m| {
+                for (m.entries) |entry| {
+                    try self.compile(entry.key);
+                    try self.compile(entry.value);
+                }
+
+                try self.emitOp(.OP_BUILD_MAP);
+                try self.emitByte(@intCast(m.entries.len));
             },
             .Import => |i| {
                 try self.compile(i.path.*);
