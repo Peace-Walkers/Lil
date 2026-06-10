@@ -57,6 +57,7 @@ pub const VM = struct {
     // Native registry
     table_methods: std.StringHashMap(NativeFn),
     string_methods: std.StringHashMap(NativeFn),
+    map_methods: std.StringHashMap(NativeFn),
     result_methods: std.StringHashMap(NativeFn),
 
     import_resolver: ?ResolveFn,
@@ -81,23 +82,27 @@ pub const VM = struct {
             .string_methods = std.StringHashMap(NativeFn).init(allocator),
             .table_methods = std.StringHashMap(NativeFn).init(allocator),
             .result_methods = std.StringHashMap(NativeFn).init(allocator),
+            .map_methods = std.StringHashMap(NativeFn).init(allocator),
             .halt_frame_count = null,
             .io = io,
             .loaded_modules = std.StringHashMap(Value).init(allocator),
             .import_resolver = null,
         };
 
-        try vm.table_methods.put("push", stdlib.table.push);
-        try vm.table_methods.put("map", stdlib.table.map);
-        try vm.table_methods.put("filter", stdlib.table.filter);
-        try vm.table_methods.put("len", stdlib.table.len);
-        try vm.table_methods.put("pop", stdlib.table.pop);
+        try vm.table_methods.put("push", stdlib.methods.table.push);
+        try vm.table_methods.put("map", stdlib.methods.table.map);
+        try vm.table_methods.put("filter", stdlib.methods.table.filter);
+        try vm.table_methods.put("len", stdlib.methods.table.len);
+        try vm.table_methods.put("pop", stdlib.methods.table.pop);
 
-        try vm.string_methods.put("push", stdlib.string.push);
-        try vm.string_methods.put("len", stdlib.string.len);
-        try vm.string_methods.put("split", stdlib.string.split);
+        try vm.string_methods.put("push", stdlib.methods.string.push);
+        try vm.string_methods.put("len", stdlib.methods.string.len);
+        try vm.string_methods.put("split", stdlib.methods.string.split);
 
-        try vm.result_methods.put("unwrap", stdlib.variant.unwrap);
+        try vm.map_methods.put("put", stdlib.methods.map.put);
+        try vm.map_methods.put("get", stdlib.methods.map.get);
+
+        try vm.result_methods.put("unwrap", stdlib.methods.variant.unwrap);
 
         return vm;
     }
@@ -807,6 +812,18 @@ pub const VM = struct {
                                 return error.RuntimeError;
                             }
                         },
+                        .Map => {
+                            if (self.map_methods.get(method_name)) |native_fn| {
+                                const total_args = arg_count + 1;
+                                const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+                                const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                self.stack_top -= total_args;
+                                self.push(result);
+                            } else {
+                                std.debug.print("Runtime Error: Undefined Map method '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
                         else => {
                             std.debug.print("Runtime Error: Type '{s}' does not support methods.\n", .{@tagName(receiver.Object.obj_type)});
                             return error.RuntimeError;
@@ -1025,40 +1042,59 @@ pub const VM = struct {
                     const index_val = self.pop();
                     const object_val = self.pop();
 
-                    if (index_val != .Number) {
-                        self.panic("Index must be a number but found {s}", .{@tagName(index_val)});
+                    if (object_val != .Object) {
+                        self.panic("Cannot index a non-object type: {s}.", .{@tagName(object_val)});
                         return error.RuntimeError;
                     }
 
-                    const index: usize = @intCast(index_val.Number);
+                    switch (object_val.Object.obj_type) {
+                        .Map => {
+                            const map = object_val.Object.toMap();
+                            if (map.hashmap.get(index_val)) |v| {
+                                self.push(v);
+                            } else {
+                                self.panic("Unknown key in Map.", .{});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .Table => {
+                            if (index_val != .Number) {
+                                self.panic("Array index must be a number, found {s}.", .{@tagName(index_val)});
+                                return error.RuntimeError;
+                            }
+                            const index: usize = @intCast(index_val.Number);
+                            const table = object_val.Object.toTable();
 
-                    if (object_val == .Object and object_val.Object.obj_type == .Table) {
-                        const table = object_val.Object.toTable();
+                            if (index >= table.elements.items.len) {
+                                self.panic("Array index out of bounds: length is {d} but index is {d}.", .{ table.elements.items.len, index });
+                                return error.RuntimeError;
+                            }
+                            self.push(table.elements.items[index]);
+                        },
+                        .String => {
+                            if (index_val != .Number) {
+                                self.panic("String index must be a number.", .{});
+                                return error.RuntimeError;
+                            }
+                            const index: usize = @intCast(index_val.Number);
+                            const string = object_val.Object.toString();
 
-                        if (index >= table.elements.items.len) {
-                            self.panic("Array index out of bounds: length is {d} but index is {d}.", .{ table.elements.items.len, index });
+                            if (index >= string.chars.len) {
+                                self.panic("String index out of bounds.", .{});
+                                return error.RuntimeError;
+                            }
+
+                            const char = string.chars[index];
+                            var char_slice = try self.allocator.alloc(u8, 1);
+                            char_slice[0] = char;
+                            var new_str = try self.createString(char_slice);
+
+                            self.push(.{ .Object = &new_str.obj });
+                        },
+                        else => {
+                            self.panic("Can only index Arrays, Strings and Maps (found {s}).", .{@tagName(object_val.Object.obj_type)});
                             return error.RuntimeError;
-                        }
-                        self.push(table.elements.items[index]);
-                    } else if (object_val == .Object and object_val.Object.obj_type == .String) {
-                        const string = object_val.Object.toString();
-
-                        if (index >= string.chars.len) {
-                            std.debug.print("Runtime Error: String index out of bounds.\n", .{});
-                            return error.RuntimeError;
-                        }
-
-                        const char = string.chars[index];
-
-                        var char_slice = try self.allocator.alloc(u8, 1);
-                        char_slice[0] = char;
-
-                        var new_str = try self.createString(char_slice);
-
-                        self.push(.{ .Object = &new_str.obj });
-                    } else {
-                        std.debug.print("Runtime Error: Can only index arrays and strings.\n", .{});
-                        return error.RuntimeError;
+                        },
                     }
                 },
                 .OP_MATCH_TEST => {

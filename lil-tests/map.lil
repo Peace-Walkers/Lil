@@ -1,9 +1,40 @@
+let table = {1, 2, 3, 4, 5}
+
 let map = {
-    "oui" => 1,
+    "oui" => "je test des trucs",
     "non" => 2,
     "jsp" => 3,
+    "table" => table,
 }
 
 io::println(map)
 
 let oui = map["oui"]
+
+io::println("oui => {}", oui)
+
+fn add(t):
+  t.push("oui")
+  t.push(1)
+
+add(table)
+
+let n = 10
+
+fn mod(number):
+  number = 20 
+  io::println("inside the function n == {}", number)
+
+mod(n)
+
+io::println("n => {}", n)
+io::println("table => {}", map["table"])
+
+io::println("map after put: {}", map)
+
+let success = map.get("oui")
+let fail = map.get("dfdfh")
+
+if fail == null:
+  io::println("returned null succesfully")
+  io::println("btw this is the 'oui' key value: {}", success)

@@ -37,6 +37,12 @@ pub const Value = union(ValueType) {
         return null;
     }
 
+    pub fn asMap(self: Value) ?*MapObj {
+        if (self == .Object and self.Object.obj_type == .Map)
+            return self.Object.toMap();
+        return null;
+    }
+
     pub fn asVariant(self: Value) ?*VariantObj {
         if (self == .Object and self.Object.obj_type == .Variant)
             return self.Object.toVariant();
