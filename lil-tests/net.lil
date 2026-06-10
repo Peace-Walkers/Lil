@@ -16,3 +16,10 @@ fn! test_net():
 
 let status = test_net()?
 io::println("\nFinal Result: {}", status)
+
+let res = net::request({
+    url: "https://google.com",
+    keep_alive: true,
+})?
+
+io::println("response body len: {} bytes", res.body.len())
