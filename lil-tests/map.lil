@@ -1,0 +1,9 @@
+let map = {
+    "oui" => 1,
+    "non" => 2,
+    "jsp" => 3,
+}
+
+io::println(map)
+
+let oui = map["oui"]

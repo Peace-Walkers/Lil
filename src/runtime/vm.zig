@@ -7,6 +7,7 @@ const Value = value_mod.Value;
 const StringObj = value_mod.StringObj;
 const FunctionObj = value_mod.FunctionObj;
 const TableObj = value_mod.TableObj;
+const MapObj = value_mod.MapObj;
 const VariantObj = value_mod.VariantObj;
 const NativeObj = value_mod.NativeObj;
 const NativeFn = value_mod.NativeFn;
@@ -229,6 +230,15 @@ pub const VM = struct {
             .elements = .empty,
         };
         return table_obj;
+    }
+
+    pub fn createMap(self: *Self) !*MapObj {
+        const map_obj = try self.allocator.create(MapObj);
+        map_obj.* = .{
+            .obj = .{ .obj_type = .Map, .next = null },
+            .hashmap = std.HashMap(Value, Value, value_mod.ValueContext, 80).init(self.allocator),
+        };
+        return map_obj;
     }
 
     pub fn createVariant(self: *Self, namespace: *StringObj, name: *StringObj, payload: []Value) !*VariantObj {
@@ -599,6 +609,21 @@ pub const VM = struct {
                     }
 
                     self.push(.{ .Object = &table_obj.obj });
+                },
+                .OP_BUILD_MAP => {
+                    const map_len = self.readByte();
+
+                    const map_object = try self.createMap();
+                    var i: usize = 0;
+
+                    while (i < map_len) : (i += 1) {
+                        const value = self.pop();
+                        const key = self.pop();
+
+                        try map_object.hashmap.put(key, value);
+                    }
+
+                    self.push(.{ .Object = &map_object.obj });
                 },
                 .OP_IMPORT => {
                     const path_val = self.pop();

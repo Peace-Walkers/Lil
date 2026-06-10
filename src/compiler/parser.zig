@@ -444,7 +444,7 @@ pub const Parser = struct {
                     }
 
                     const val = try self.parse_expr();
-                    try map_entries.append(self.arena, .{ .value = val });
+                    try map_entries.append(self.arena, .{ .key = expr, .value = val });
                 } else if (self.match(.Colon)) {
                     if (is_first) is_map = false;
 

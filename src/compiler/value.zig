@@ -143,13 +143,14 @@ pub const Obj = struct {
             },
             .Map => {
                 const map = self.toMap();
-                std.debug.print("{s}:\n", .{map.name.chars});
+                std.debug.print("Map:\n", .{});
                 var it = map.hashmap.iterator();
                 while (it.next()) |kv| {
                     std.debug.print("[", .{});
                     kv.key_ptr.print(indent + 1);
                     std.debug.print("] : ", .{});
                     kv.value_ptr.print(indent + 1);
+                    std.debug.print("\n", .{});
                 }
             },
         }
@@ -206,7 +207,7 @@ pub const ValueContext = struct {
             .Null => hasher.update("null"),
             .Boolean => |b| hasher.update(if (b) "true" else "false"),
             .Number => |n| {
-                const bytes = std.mem.asBytes(n);
+                const bytes = std.mem.asBytes(&n);
                 hasher.update(bytes);
             },
             .Object => |obj| {
@@ -217,7 +218,7 @@ pub const ValueContext = struct {
                     },
                     else => {
                         const ptr_val = @intFromPtr(obj);
-                        const bytes = std.mem.asBytes(ptr_val);
+                        const bytes = std.mem.asBytes(&ptr_val);
                         hasher.update(bytes);
                     },
                 }
@@ -255,6 +256,5 @@ pub const ValueContext = struct {
 
 pub const MapObj = struct {
     obj: Obj,
-    name: *StringObj,
     hashmap: std.HashMap(Value, Value, ValueContext, 80),
 };

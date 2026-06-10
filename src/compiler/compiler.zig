@@ -252,6 +252,15 @@ pub const Compiler = struct {
                 try self.emitByte(@intCast(array_count));
                 try self.emitByte(@intCast(dict_count));
             },
+            .Map => |m| {
+                for (m.entries) |entry| {
+                    try self.compile(entry.key);
+                    try self.compile(entry.value);
+                }
+
+                try self.emitOp(.OP_BUILD_MAP);
+                try self.emitByte(@intCast(m.entries.len));
+            },
             .Import => |i| {
                 try self.compile(i.path.*);
                 try self.emitOp(.OP_IMPORT);
