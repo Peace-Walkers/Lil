@@ -52,24 +52,3 @@ pub fn fetch(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
 }
-
-///This function take a Request Description Table:
-///{
-///     url: String,
-///     header: String,
-///     body: String,
-///     method: String,
-///     ContentLength: Number,
-///}
-pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
-    const v: *VM = @ptrCast(@alignCast(vm));
-
-    if (arg_count != 1 or args[0] != .Object or args[0].Object.obj_type != .Table) {
-        return v.createResultErr("net::request expect exactly 1 argument (Request Description Table)") catch unreachable;
-    }
-
-    const request_description_table = args[0].Object.toTable();
-
-    //TODO: check the presence & the type of the value in the table fields
-    const url = request_description_table.fields.get("url");
-}

@@ -1,9 +1,8 @@
 pub const io = @import("io.zig");
-pub const table = @import("table.zig");
 pub const fs = @import("fs.zig");
-pub const string = @import("string.zig");
-pub const variant = @import("variant.zig");
 pub const net = @import("net.zig");
+
+pub const methods = @import("methods/methods.zig");
 
 const VM = @import("../runtime/vm.zig").VM;
 

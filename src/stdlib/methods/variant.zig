@@ -1,6 +1,6 @@
 const std = @import("std");
-const value_mod = @import("../compiler/value.zig");
-const VM = @import("../runtime/vm.zig").VM;
+const value_mod = @import("../../compiler/value.zig");
+const VM = @import("../../runtime/vm.zig").VM;
 const Value = value_mod.Value;
 const TableObj = value_mod.TableObj;
 

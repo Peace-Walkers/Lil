@@ -37,13 +37,19 @@ pub const Value = union(ValueType) {
         return null;
     }
 
+    pub fn asMap(self: Value) ?*MapObj {
+        if (self == .Object and self.Object.obj_type == .Map)
+            return self.Object.toMap();
+        return null;
+    }
+
     pub fn asVariant(self: Value) ?*VariantObj {
         if (self == .Object and self.Object.obj_type == .Variant)
             return self.Object.toVariant();
         return null;
     }
 
-    pub fn asNative(self: Value) ?*ObjNative {
+    pub fn asNative(self: Value) ?*NativeObj {
         if (self == .Object and self.Object.obj_type == .Native)
             return self.Object.toNative();
         return null;
@@ -65,13 +71,14 @@ pub const ObjType = enum {
     Function,
     Variant,
     Native,
+    Map,
 };
 
 pub const Obj = struct {
     obj_type: ObjType,
     next: ?*Obj,
 
-    pub fn toString(self: *Obj) *ObjString {
+    pub fn toString(self: *Obj) *StringObj {
         return @fieldParentPtr("obj", self);
     }
 
@@ -87,7 +94,11 @@ pub const Obj = struct {
         return @fieldParentPtr("obj", self);
     }
 
-    pub fn toNative(self: *Obj) *ObjNative {
+    pub fn toNative(self: *Obj) *NativeObj {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toMap(self: *Obj) *MapObj {
         return @fieldParentPtr("obj", self);
     }
 
@@ -136,6 +147,18 @@ pub const Obj = struct {
                 const native_obj = self.toNative();
                 std.debug.print("<NativeFn {s}>", .{native_obj.name});
             },
+            .Map => {
+                const map = self.toMap();
+                std.debug.print("Map:\n", .{});
+                var it = map.hashmap.iterator();
+                while (it.next()) |kv| {
+                    std.debug.print("[", .{});
+                    kv.key_ptr.print(indent + 1);
+                    std.debug.print("] : ", .{});
+                    kv.value_ptr.print(indent + 1);
+                    std.debug.print("\n", .{});
+                }
+            },
         }
     }
 };
@@ -143,11 +166,11 @@ pub const Obj = struct {
 fn printIndent(indent: usize) void {
     var i: usize = 0;
     while (i < indent) : (i += 1) {
-        std.debug.print("    ", .{}); // 4 espaces par niveau
+        std.debug.print("    ", .{});
     }
 }
 
-pub const ObjString = struct {
+pub const StringObj = struct {
     obj: Obj,
     chars: []const u8,
 };
@@ -162,21 +185,82 @@ pub const FunctionObj = struct {
     obj: Obj,
     arity: usize,
     chunk: Chunk,
-    name: ?*ObjString,
+    name: ?*StringObj,
     can_fail: bool,
 };
 
 pub const VariantObj = struct {
     obj: Obj,
-    namespace: ?*ObjString,
-    variant_name: *ObjString,
+    namespace: ?*StringObj,
+    variant_name: *StringObj,
     payload: []Value,
 };
 
 pub const NativeFn = *const fn (vm: *anyopaque, arg_count: u8, args: [*]Value) Value;
 
-pub const ObjNative = struct {
+pub const NativeObj = struct {
     obj: Obj,
     function: NativeFn,
     name: []const u8,
+};
+
+pub const ValueContext = struct {
+    pub fn hash(self: @This(), key: Value) u64 {
+        _ = self;
+        var hasher = std.hash.Fnv1a_64.init();
+
+        switch (key) {
+            .Null => hasher.update("null"),
+            .Boolean => |b| hasher.update(if (b) "true" else "false"),
+            .Number => |n| {
+                const bytes = std.mem.asBytes(&n);
+                hasher.update(bytes);
+            },
+            .Object => |obj| {
+                switch (obj.obj_type) {
+                    .String => {
+                        const str_obj = obj.toString();
+                        hasher.update(str_obj.chars);
+                    },
+                    else => {
+                        const ptr_val = @intFromPtr(obj);
+                        const bytes = std.mem.asBytes(&ptr_val);
+                        hasher.update(bytes);
+                    },
+                }
+            },
+        }
+        return hasher.final();
+    }
+
+    pub fn eql(self: @This(), a: Value, b: Value) bool {
+        _ = self;
+        if (@intFromEnum(a) != @intFromEnum(b)) return false;
+
+        switch (a) {
+            .Null => return true,
+            .Boolean => |bo| return bo == b.Boolean,
+            .Number => |n| return n == b.Number,
+            .Object => |a_obj| {
+                const b_obj = b.Object;
+                if (a_obj.obj_type != b_obj.obj_type) return false;
+
+                switch (a_obj.obj_type) {
+                    .String => {
+                        const str_a = a_obj.toString().chars;
+                        const str_b = b_obj.toString().chars;
+                        return std.mem.eql(u8, str_a, str_b);
+                    },
+                    else => {
+                        return a_obj == b_obj;
+                    },
+                }
+            },
+        }
+    }
+};
+
+pub const MapObj = struct {
+    obj: Obj,
+    hashmap: std.HashMap(Value, Value, ValueContext, 80),
 };

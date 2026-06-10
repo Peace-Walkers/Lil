@@ -21,6 +21,7 @@ pub const TokenType = enum {
     True, // true
     False, // false
     Import, // import
+    Null, // null
 
     // --- 3. Symbols & Operators ---
     Colon, // :
@@ -193,6 +194,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "true")) return self.makeToken(.True, start);
         if (std.mem.eql(u8, text, "false")) return self.makeToken(.False, start);
         if (std.mem.eql(u8, text, "import")) return self.makeToken(.Import, start);
+        if (std.mem.eql(u8, text, "null")) return self.makeToken(.Null, start);
 
         return self.makeToken(.Identifier, start);
     }
