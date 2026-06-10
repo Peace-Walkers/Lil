@@ -33,8 +33,10 @@ io::println("table => {}", map["table"])
 io::println("map after put: {}", map)
 
 let success = map.get("oui")
-let fail = map.get("dfdfh")
+let fail = map.get("table")
 
 if fail == null:
   io::println("returned null succesfully")
   io::println("btw this is the 'oui' key value: {}", success)
+else:
+  io::println("fail was not null this is value: {}", fail)

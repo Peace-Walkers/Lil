@@ -314,6 +314,8 @@ pub const VM = struct {
 
     fn valuesEquals(self: *Self, a: Value, b: Value) !bool {
         if (@intFromEnum(a) != @intFromEnum(b)) {
+            if (a == .Null or b == .Null)
+                return false;
             std.debug.print("Runtime Error: Invalid comparison between incompatible types '{s}' and '{s}'\n", .{ @tagName(a), @tagName(b) });
             return error.RuntimeError;
         }

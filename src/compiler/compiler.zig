@@ -222,6 +222,9 @@ pub const Compiler = struct {
             .Boolean => |b| {
                 try self.emitConstant(.{ .Boolean = b });
             },
+            .Null => |n| {
+                try self.emitConstant(.{ .Null = n });
+            },
             .Table => |table_node| {
                 var array_count: usize = 0;
                 var dict_count: usize = table_node.fields.len;

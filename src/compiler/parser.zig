@@ -628,6 +628,7 @@ pub const Parser = struct {
         if (self.match(.String)) return .{ .String = self.previous.lexeme };
         if (self.match(.True) or self.match(.False)) return .{ .Boolean = self.previous.tag == .True };
         if (self.match(.Identifier)) return .{ .Identifier = self.previous.lexeme };
+        if (self.match(.Null)) return .Null;
 
         if (self.match(.Match)) return try self.parse_match();
 
