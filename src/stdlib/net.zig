@@ -130,6 +130,40 @@ pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
 }
 
+pub fn recv(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+
+    if (arg_count != 1 or args[0] != .Number) {
+        return v.createResultErr("net::request expect exactly 1 argument 'port' need to be a number") catch unreachable;
+    }
+
+    const port: u16 = @intCast(args[0].Number);
+
+    const address = std.Io.net.IpAddress.parseIp4("127.0.0.1", port) catch unreachable;
+
+    const io = v.io.system;
+    var tcp_server = address.listen(io, .{ .reuse_address = true }) catch {
+        return v.createResultErr("Failed to bind to port.") catch unreachable;
+    };
+    defer tcp_server.deinit(io);
+
+    const connection = tcp_server.accept(io) catch {
+        return v.createResultErr("Failed to accept TCP connection.") catch unreachable;
+    };
+    defer connection.close(io);
+
+    var buf: [4096]u8 = undefined;
+    var reader = connection.reader(io, &buf);
+    const byte_read = reader.interface.readSliceShort(&buf) catch {
+        return v.createResultErr("Failed to read from socket.") catch unreachable;
+    };
+
+    const raw_data = buf[0..byte_read];
+    const string_obj = v.createString(raw_data) catch unreachable;
+
+    return .{ .Object = &string_obj.obj };
+}
+
 ///RDT is for Request Descriptor Table
 const RDT = struct {
     url: []const u8,

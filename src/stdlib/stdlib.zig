@@ -26,6 +26,7 @@ pub fn openNet(vm: *VM) !void {
     var net_module = try vm.createTable();
     try vm.bindNative(net_module, "fetch", net.fetch);
     try vm.bindNative(net_module, "request", net.request);
+    try vm.bindNative(net_module, "recv", net.recv);
 
     try vm.setGlobal("net", .{ .Object = &net_module.obj });
 }

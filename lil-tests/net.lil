@@ -23,3 +23,5 @@ let res = net::request({
 })?
 
 io::println("response body len: {} bytes", res.body.len())
+
+let req = net::recv(8080)
