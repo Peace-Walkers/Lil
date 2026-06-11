@@ -257,6 +257,17 @@ pub const VM = struct {
         return variant_obj;
     }
 
+    pub fn createSystem(self: *Self, kind: value_mod.SystemType, ptr: *anyopaque) !*value_mod.SystemObj {
+        const sys_obj = try self.allocator.create(value_mod.SystemObj);
+        sys_obj.* = .{
+            .obj = .{ .obj_type = .System, .next = null },
+            .kind = kind,
+            .ptr = ptr,
+            .methods = std.StringHashMap(Value).init(self.allocator),
+        };
+        return sys_obj;
+    }
+
     pub fn createResultOk(self: *Self, payload: Value) !Value {
         const ns_str = try self.createString("Result");
         const name_str = try self.createString("Ok");
@@ -282,14 +293,14 @@ pub const VM = struct {
 
     /// Search in Table.fields specific key and check it type
     pub fn expectField(self: *Self, table: *TableObj, name: []const u8, expected_type: ObjType) !Value {
-        const value = table.fields.get(name) orelse self.createResultErr(std.fmt.allocPrint(self.allocator, "Missing expected key '{s}' table.", name));
+        const value = table.fields.get(name) orelse return self.createResultErr(try std.fmt.allocPrint(self.allocator, "Missing expected key '{s}' table.", .{name}));
 
         if (value != .Object) {
-            return self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value) }));
+            return self.createResultErr(try std.fmt.allocPrint(self.allocator, "Key '{s}' must be an object of type {s} but found {s}", .{ name, @tagName(expected_type), @tagName(value) }));
         }
 
-        if (value.Object.obj_type != expected_type.Object.obj_type) {
-            return self.createResultErr(std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type.Object.obj_type), @tagName(value.Object.obj_type) }));
+        if (value.Object.obj_type != expected_type) {
+            return self.createResultErr(try std.fmt.allocPrint(self.allocator, "Key '{s}' must be a {s} but found {s}", .{ name, @tagName(expected_type), @tagName(value.Object.obj_type) }));
         }
 
         return value;
@@ -432,6 +443,18 @@ pub const VM = struct {
                         const map_b = b_obj.toMap();
 
                         return map_a == map_b;
+                    },
+                    .System => {
+                        const system_a = a_obj.toSystem();
+                        const system_b = b_obj.toSystem();
+
+                        if (system_a.kind != system_b.kind)
+                            return false;
+
+                        if (system_a.ptr != system_b.ptr)
+                            return false;
+
+                        return true;
                     },
                 }
             },
@@ -681,18 +704,34 @@ pub const VM = struct {
 
                     const instance_val = self.pop();
 
-                    if (instance_val != .Object or instance_val.Object.obj_type != .Table) {
+                    if (instance_val != .Object or (instance_val.Object.obj_type != .Table and instance_val.Object.obj_type != .System)) {
+                        std.log.info("obj_type: {s}", .{@tagName(instance_val.Object.obj_type)});
                         std.debug.print("Runtime Error: Only tables have properties.\n", .{});
                         return error.RuntimeError;
                     }
 
-                    const table = instance_val.Object.toTable();
+                    switch (instance_val.Object.obj_type) {
+                        .Table => {
+                            const table = instance_val.Object.toTable();
 
-                    if (table.fields.get(property_name)) |value| {
-                        self.push(value);
-                    } else {
-                        std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{property_name});
-                        return error.RuntimeError;
+                            if (table.fields.get(property_name)) |value| {
+                                self.push(value);
+                            } else {
+                                std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{property_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .System => {
+                            const sys_obj = instance_val.Object.toSystem();
+
+                            if (sys_obj.methods.get(property_name)) |method| {
+                                self.push(method);
+                            } else {
+                                self.panic("System object has no property or method named '{s}'", .{property_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        else => unreachable,
                     }
                 },
                 .OP_SET_PROPRETY => {
@@ -823,6 +862,27 @@ pub const VM = struct {
                                 self.push(result);
                             } else {
                                 std.debug.print("Runtime Error: Undefined Map method '{s}'.\n", .{method_name});
+                                return error.RuntimeError;
+                            }
+                        },
+                        .System => {
+                            const sys_obj = receiver.Object.toSystem();
+
+                            if (sys_obj.methods.get(method_name)) |method| {
+                                if (method != .Object or method.Object.obj_type != .Native) {
+                                    self.panic("Runtime Error: Property '{s}' is not a native function.\n", .{method_name});
+                                    return error.RuntimeError;
+                                }
+                                const native_fn = method.Object.toNative().function;
+
+                                const total_args = arg_count + 1;
+                                const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
+
+                                const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                self.stack_top -= total_args;
+                                self.push(result);
+                            } else {
+                                self.panic("System object has no property or method named '{s}'", .{method_name});
                                 return error.RuntimeError;
                             }
                         },

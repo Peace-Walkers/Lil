@@ -16,3 +16,24 @@ fn! test_net():
 
 let status = test_net()?
 io::println("\nFinal Result: {}", status)
+
+let res = net::request({
+    url: "https://google.com",
+    keep_alive: true,
+})?
+
+io::println("response body len: {} bytes", res.body.len())
+
+
+let port = 8080
+let server = net::listen("0.0.0.0", port)?
+io::println("listening on port {}", port)
+let client = server.accept()?
+io::println("client: {}", client)
+let req = client.recv()
+io::println("response : {}", req)
+let headers = "HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\n"
+let body = "goodbye"
+
+client.send(headers)?
+client.send(body)
