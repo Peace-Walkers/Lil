@@ -151,7 +151,10 @@ pub fn listen(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const sys_obj = v.createSystem(.TcpServer, server_ptr) catch unreachable;
 
     const accept_val = v.createNative("accept", accept) catch unreachable;
+    const close_val = v.createNative("close", close) catch unreachable;
+
     sys_obj.methods.put("accept", accept_val) catch unreachable;
+    sys_obj.methods.put("close", close_val) catch unreachable;
 
     const res = v.createResultOk(.{ .Object = &sys_obj.obj }) catch unreachable;
     return res;
@@ -186,8 +189,12 @@ pub fn accept(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const client_obj = v.createSystem(.TcpClient, conn_ptr) catch unreachable;
 
     const recv_val = v.createNative("recv", recv) catch unreachable;
+    const send_val = v.createNative("send", send) catch unreachable;
+    const close_val = v.createNative("close", close) catch unreachable;
 
     client_obj.methods.put("recv", recv_val) catch unreachable;
+    client_obj.methods.put("send", send_val) catch unreachable;
+    client_obj.methods.put("close", close_val) catch unreachable;
 
     const res = v.createResultOk(.{ .Object = &client_obj.obj }) catch unreachable;
     return res;
@@ -208,18 +215,83 @@ pub fn recv(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     var buf: [4096]u8 = undefined;
     var reader = conn_ptr.reader(io, &buf);
-    std.log.info("before reading", .{});
     const data = reader.interface.peekGreedy(1) catch { // bloque ici
         return v.createResultErr("Failed to read from socket.") catch unreachable;
     };
-    std.log.info("after reading", .{});
 
     const raw_data = data;
     const string_obj = v.createString(raw_data) catch unreachable;
 
     reader.interface.toss(data.len);
 
-    return .{ .Object = &string_obj.obj };
+    const res = v.createResultOk(.{ .Object = &string_obj.obj }) catch unreachable;
+    return res;
+}
+
+pub fn send(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+
+    if (arg_count != 2) {
+        return v.createResultErr("client.send() expects exactly 1 argument (String)") catch unreachable;
+    }
+
+    if (args[0] != .Object or args[0].Object.obj_type != .System) {
+        return v.createResultErr("send() must be called on a System object") catch unreachable;
+    }
+    if (args[1] != .Object or args[1].Object.obj_type != .String) {
+        return v.createResultErr("client.send() payload must be a String") catch unreachable;
+    }
+
+    const sys_obj = args[0].Object.toSystem();
+    if (sys_obj.kind != .TcpClient) {
+        return v.createResultErr("send() can only be called on a TcpClient") catch unreachable;
+    }
+
+    const payload = args[1].Object.toString().chars;
+    const io = v.io.system;
+    const conn_ptr: *std.Io.net.Stream = @ptrCast(@alignCast(sys_obj.ptr));
+
+    var buf: [4096]u8 = undefined;
+    var writer = conn_ptr.writer(io, &buf);
+
+    writer.interface.writeAll(payload) catch {
+        return v.createResultErr("Failed to write to socket.") catch unreachable;
+    };
+
+    writer.interface.flush() catch unreachable;
+
+    return v.createResultOk(.Null) catch unreachable;
+}
+
+pub fn close(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+
+    if (arg_count != 1) {
+        return v.createResultErr("close() takes no arguments") catch unreachable;
+    }
+
+    if (args[0] != .Object or args[0].Object.obj_type != .System) {
+        return v.createResultErr("close() must be called on a System object") catch unreachable;
+    }
+
+    const sys_obj = args[0].Object.toSystem();
+    const io = v.io.system;
+
+    switch (sys_obj.kind) {
+        .TcpClient => {
+            const conn_ptr: *std.Io.net.Stream = @ptrCast(@alignCast(sys_obj.ptr));
+            conn_ptr.close(io);
+        },
+        .TcpServer => {
+            const server_ptr: *std.Io.net.Server = @ptrCast(@alignCast(sys_obj.ptr));
+            server_ptr.deinit(io);
+        },
+        else => {
+            return v.createResultErr("close() not implemented for this system object") catch unreachable;
+        },
+    }
+
+    return v.createResultOk(.Null) catch unreachable;
 }
 
 ///RDT is for Request Descriptor Table

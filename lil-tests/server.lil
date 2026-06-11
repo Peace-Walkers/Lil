@@ -1,0 +1,14 @@
+let server = net::listen("0.0.0.0", 8080)?
+io::println("Serveur HTTP démarré sur http://localhost:8080")
+
+while true:
+    let client = server.accept()?
+    let req = client.recv()?
+    
+    let body = "<h1>Salut de la part de LiLang !</h1>"
+    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 37\r\n\r\n"
+    
+    client.send(response)?
+    client.send(body)?
+    
+    client.close()?
