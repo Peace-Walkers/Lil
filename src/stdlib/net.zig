@@ -130,36 +130,94 @@ pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
 }
 
+pub fn listen(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+
+    if (arg_count != 2 or args[0] != .Object or args[0].Object.obj_type != .String or args[1] != .Number) {
+        std.log.info("found: {s} and {s}", .{ @tagName(args[0]), @tagName(args[1].Object.obj_type) });
+        return v.createResultErr("net::listen() accept only two args 'host: String' and 'port: Number'.") catch unreachable;
+    }
+
+    const io = v.io.system;
+    const host = args[0].Object.toString().chars;
+    const port: u16 = @intCast(args[1].Number);
+    const address = std.Io.net.IpAddress.parseIp4(host, port) catch unreachable;
+
+    const server_ptr = v.allocator.create(std.Io.net.Server) catch unreachable;
+    server_ptr.* = address.listen(io, .{ .reuse_address = true }) catch {
+        return v.createResultErr("Failed to listen.") catch unreachable;
+    };
+
+    const sys_obj = v.createSystem(.TcpServer, server_ptr) catch unreachable;
+
+    const accept_val = v.createNative("accept", accept) catch unreachable;
+    sys_obj.methods.put("accept", accept_val) catch unreachable;
+
+    const res = v.createResultOk(.{ .Object = &sys_obj.obj }) catch unreachable;
+    return res;
+}
+
+pub fn accept(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+    const v: *VM = @ptrCast(@alignCast(vm));
+
+    if (arg_count != 1) {
+        return v.createResultErr("Server.accept() do not need args") catch unreachable;
+    }
+
+    if (args[0] != .Object or args[0].Object.obj_type != .System) {
+        return v.createResultErr("accept() must be called on a System object") catch unreachable;
+    }
+
+    const sys_obj = args[0].Object.toSystem();
+    if (sys_obj.kind != .TcpServer) {
+        return v.createResultErr("accept() can only be called on a TcpServer") catch unreachable;
+    }
+    const io = v.io.system;
+
+    const server_ptr: *std.Io.net.Server = @ptrCast(@alignCast(sys_obj.ptr));
+
+    const connection = server_ptr.accept(io) catch {
+        return v.createResultErr("Failed to accept client connection.") catch unreachable;
+    };
+
+    const conn_ptr = v.allocator.create(std.Io.net.Stream) catch unreachable;
+    conn_ptr.* = connection;
+
+    const client_obj = v.createSystem(.TcpClient, conn_ptr) catch unreachable;
+
+    const recv_val = v.createNative("recv", recv) catch unreachable;
+
+    client_obj.methods.put("recv", recv_val) catch unreachable;
+
+    const res = v.createResultOk(.{ .Object = &client_obj.obj }) catch unreachable;
+    return res;
+}
+
 pub fn recv(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
-    if (arg_count != 1 or args[0] != .Number) {
-        return v.createResultErr("net::request expect exactly 1 argument 'port' need to be a number") catch unreachable;
+    _ = arg_count;
+
+    const sys_obj = args[0].Object.toSystem();
+    if (sys_obj.kind != .TcpClient) {
+        return v.createResultErr("recv() can only be called on a TcpClient") catch unreachable;
     }
 
-    const port: u16 = @intCast(args[0].Number);
-
-    const address = std.Io.net.IpAddress.parseIp4("127.0.0.1", port) catch unreachable;
-
     const io = v.io.system;
-    var tcp_server = address.listen(io, .{ .reuse_address = true }) catch {
-        return v.createResultErr("Failed to bind to port.") catch unreachable;
-    };
-    defer tcp_server.deinit(io);
-
-    const connection = tcp_server.accept(io) catch {
-        return v.createResultErr("Failed to accept TCP connection.") catch unreachable;
-    };
-    defer connection.close(io);
+    const conn_ptr: *std.Io.net.Stream = @ptrCast(@alignCast(sys_obj.ptr));
 
     var buf: [4096]u8 = undefined;
-    var reader = connection.reader(io, &buf);
-    const byte_read = reader.interface.readSliceShort(&buf) catch {
+    var reader = conn_ptr.reader(io, &buf);
+    std.log.info("before reading", .{});
+    const data = reader.interface.peekGreedy(1) catch { // bloque ici
         return v.createResultErr("Failed to read from socket.") catch unreachable;
     };
+    std.log.info("after reading", .{});
 
-    const raw_data = buf[0..byte_read];
+    const raw_data = data;
     const string_obj = v.createString(raw_data) catch unreachable;
+
+    reader.interface.toss(data.len);
 
     return .{ .Object = &string_obj.obj };
 }

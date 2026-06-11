@@ -24,4 +24,9 @@ let res = net::request({
 
 io::println("response body len: {} bytes", res.body.len())
 
-let req = net::recv(8080)
+
+let server = net::listen("0.0.0.0", 8080)?
+let client = server.accept()?
+io::println("client: {}", client)
+let req = client.recv()
+io::println("response : {}", req)

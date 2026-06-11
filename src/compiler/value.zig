@@ -72,6 +72,7 @@ pub const ObjType = enum {
     Variant,
     Native,
     Map,
+    System,
 };
 
 pub const Obj = struct {
@@ -99,6 +100,10 @@ pub const Obj = struct {
     }
 
     pub fn toMap(self: *Obj) *MapObj {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn toSystem(self: *Obj) *SystemObj {
         return @fieldParentPtr("obj", self);
     }
 
@@ -159,6 +164,10 @@ pub const Obj = struct {
                     std.debug.print("\n", .{});
                 }
             },
+            .System => {
+                const system_obj = self.toSystem();
+                std.debug.print("<System object: {s}>\n", .{@tagName(system_obj.kind)});
+            },
         }
     }
 };
@@ -194,6 +203,19 @@ pub const VariantObj = struct {
     namespace: ?*StringObj,
     variant_name: *StringObj,
     payload: []Value,
+};
+
+pub const SystemType = enum {
+    TcpServer,
+    TcpClient,
+    File,
+};
+
+pub const SystemObj = struct {
+    obj: Obj,
+    kind: SystemType,
+    ptr: *anyopaque,
+    methods: std.StringHashMap(Value),
 };
 
 pub const NativeFn = *const fn (vm: *anyopaque, arg_count: u8, args: [*]Value) Value;
