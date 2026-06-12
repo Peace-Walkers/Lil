@@ -15,11 +15,11 @@ fn isResultErr(res: Value) bool {
     return false;
 }
 
-pub fn fetch(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn fetch(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1 or args[0] != .Object or args[0].Object.obj_type != .String) {
-        return v.createResultErr("net::fetch expect exactly 1 string argument (URL)") catch unreachable;
+        return v.createResultErr("net::fetch expect exactly 1 string argument (URL)");
     }
 
     const url_str = args[0].Object.toString().chars;
@@ -39,21 +39,21 @@ pub fn fetch(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         .method = .GET,
         .response_writer = &writer.writer,
     }) catch {
-        return v.createResultErr("HTTP request failed (network error).") catch unreachable;
+        return v.createResultErr("HTTP request failed (network error).");
     };
 
     writer.writer.flush() catch {};
 
     var raw_body_slice = writer.writer.toArrayList();
-    const body_slice = raw_body_slice.toOwnedSlice(v.allocator) catch unreachable;
-    const body_str = v.createString(body_slice) catch unreachable;
+    const body_slice = try raw_body_slice.toOwnedSlice(v.allocator);
+    const body_str = try v.createString(body_slice);
 
-    var result_table = v.createTable() catch unreachable;
+    var result_table = try v.createTable();
 
-    result_table.fields.put("status", .{ .Number = @intFromEnum(res.status) }) catch unreachable;
-    result_table.fields.put("body", .{ .Object = &body_str.obj }) catch unreachable;
+    try result_table.fields.put("status", .{ .Number = @intFromEnum(res.status) });
+    try result_table.fields.put("body", .{ .Object = &body_str.obj });
 
-    return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
+    return v.createResultOk(.{ .Object = &result_table.obj });
 }
 
 ///This function take a Request Description Table:
@@ -65,17 +65,17 @@ pub fn fetch(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 ///     keep_alive: Bool,
 ///     ContentLength: Number,
 ///}
-pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1 or args[0] != .Object or args[0].Object.obj_type != .Table) {
-        return v.createResultErr("net::request expect exactly 1 argument (Request Description Table)") catch unreachable;
+        return v.createResultErr("net::request expect exactly 1 argument (Request Description Table)");
     }
 
     const request_description_table = args[0].Object.toTable();
 
     const rdt = fill_table(v, request_description_table) catch {
-        return v.createResultErr("net::Request expected Request Description Table as parameter") catch unreachable;
+        return v.createResultErr("net::Request expected Request Description Table as parameter");
     };
 
     var client = std.http.Client{
@@ -89,10 +89,10 @@ pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     var writer = std.Io.Writer.Allocating.fromArrayList(v.allocator, &buf);
 
     const method = rdt.to_methode() catch {
-        return v.createResultErr("net::request Unknown method") catch unreachable;
+        return v.createResultErr("net::request Unknown method");
     };
 
-    const headers = rdt.to_headers(v.allocator) catch unreachable;
+    const headers = try rdt.to_headers(v.allocator);
 
     var fetch_opt = std.http.Client.FetchOptions{
         .method = method,
@@ -113,101 +113,101 @@ pub fn request(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     }
 
     const res = client.fetch(fetch_opt) catch {
-        return v.createResultErr("HTTP request failed (network error).") catch unreachable;
+        return v.createResultErr("HTTP request failed (network error).");
     };
 
     writer.writer.flush() catch {};
 
     var raw_body_slice = writer.writer.toArrayList();
-    const body_slice = raw_body_slice.toOwnedSlice(v.allocator) catch unreachable;
-    const body_str = v.createString(body_slice) catch unreachable;
+    const body_slice = try raw_body_slice.toOwnedSlice(v.allocator);
+    const body_str = try v.createString(body_slice);
 
-    var result_table = v.createTable() catch unreachable;
+    var result_table = try v.createTable();
 
-    result_table.fields.put("status", .{ .Number = @intFromEnum(res.status) }) catch unreachable;
-    result_table.fields.put("body", .{ .Object = &body_str.obj }) catch unreachable;
+    try result_table.fields.put("status", .{ .Number = @intFromEnum(res.status) });
+    try result_table.fields.put("body", .{ .Object = &body_str.obj });
 
-    return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
+    return v.createResultOk(.{ .Object = &result_table.obj });
 }
 
-pub fn listen(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn listen(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 2 or args[0] != .Object or args[0].Object.obj_type != .String or args[1] != .Number) {
         std.log.info("found: {s} and {s}", .{ @tagName(args[0]), @tagName(args[1].Object.obj_type) });
-        return v.createResultErr("net::listen() accept only two args 'host: String' and 'port: Number'.") catch unreachable;
+        return v.createResultErr("net::listen() accept only two args 'host: String' and 'port: Number'.");
     }
 
     const io = v.io.system;
     const host = args[0].Object.toString().chars;
     const port: u16 = @intCast(args[1].Number);
-    const address = std.Io.net.IpAddress.parseIp4(host, port) catch unreachable;
+    const address = try std.Io.net.IpAddress.parseIp4(host, port);
 
-    const server_ptr = v.allocator.create(std.Io.net.Server) catch unreachable;
+    const server_ptr = try v.allocator.create(std.Io.net.Server);
     server_ptr.* = address.listen(io, .{ .reuse_address = true }) catch {
-        return v.createResultErr("Failed to listen.") catch unreachable;
+        return v.createResultErr("Failed to listen.");
     };
 
-    const sys_obj = v.createSystem(.TcpServer, server_ptr) catch unreachable;
+    const sys_obj = try v.createSystem(.TcpServer, server_ptr);
 
-    const accept_val = v.createNative("accept", accept) catch unreachable;
-    const close_val = v.createNative("close", close) catch unreachable;
+    const accept_val = try v.createNative("accept", accept);
+    const close_val = try v.createNative("close", close);
 
-    sys_obj.methods.put("accept", accept_val) catch unreachable;
-    sys_obj.methods.put("close", close_val) catch unreachable;
+    try sys_obj.methods.put("accept", accept_val);
+    try sys_obj.methods.put("close", close_val);
 
-    const res = v.createResultOk(.{ .Object = &sys_obj.obj }) catch unreachable;
+    const res = try v.createResultOk(.{ .Object = &sys_obj.obj });
     return res;
 }
 
-pub fn accept(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn accept(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1) {
-        return v.createResultErr("Server.accept() do not need args") catch unreachable;
+        return v.createResultErr("Server.accept() do not need args");
     }
 
     if (args[0] != .Object or args[0].Object.obj_type != .System) {
-        return v.createResultErr("accept() must be called on a System object") catch unreachable;
+        return v.createResultErr("accept() must be called on a System object");
     }
 
     const sys_obj = args[0].Object.toSystem();
     if (sys_obj.kind != .TcpServer) {
-        return v.createResultErr("accept() can only be called on a TcpServer") catch unreachable;
+        return v.createResultErr("accept() can only be called on a TcpServer");
     }
     const io = v.io.system;
 
     const server_ptr: *std.Io.net.Server = @ptrCast(@alignCast(sys_obj.ptr));
 
     const connection = server_ptr.accept(io) catch {
-        return v.createResultErr("Failed to accept client connection.") catch unreachable;
+        return v.createResultErr("Failed to accept client connection.");
     };
 
-    const conn_ptr = v.allocator.create(std.Io.net.Stream) catch unreachable;
+    const conn_ptr = try v.allocator.create(std.Io.net.Stream);
     conn_ptr.* = connection;
 
-    const client_obj = v.createSystem(.TcpClient, conn_ptr) catch unreachable;
+    const client_obj = try v.createSystem(.TcpClient, conn_ptr);
 
-    const recv_val = v.createNative("recv", recv) catch unreachable;
-    const send_val = v.createNative("send", send) catch unreachable;
-    const close_val = v.createNative("close", close) catch unreachable;
+    const recv_val = try v.createNative("recv", recv);
+    const send_val = try v.createNative("send", send);
+    const close_val = try v.createNative("close", close);
 
-    client_obj.methods.put("recv", recv_val) catch unreachable;
-    client_obj.methods.put("send", send_val) catch unreachable;
-    client_obj.methods.put("close", close_val) catch unreachable;
+    try client_obj.methods.put("recv", recv_val);
+    try client_obj.methods.put("send", send_val);
+    try client_obj.methods.put("close", close_val);
 
-    const res = v.createResultOk(.{ .Object = &client_obj.obj }) catch unreachable;
+    const res = try v.createResultOk(.{ .Object = &client_obj.obj });
     return res;
 }
 
-pub fn recv(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn recv(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     _ = arg_count;
 
     const sys_obj = args[0].Object.toSystem();
     if (sys_obj.kind != .TcpClient) {
-        return v.createResultErr("recv() can only be called on a TcpClient") catch unreachable;
+        return v.createResultErr("recv() can only be called on a TcpClient");
     }
 
     const io = v.io.system;
@@ -216,35 +216,35 @@ pub fn recv(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     var buf: [4096]u8 = undefined;
     var reader = conn_ptr.reader(io, &buf);
     const data = reader.interface.peekGreedy(1) catch { // bloque ici
-        return v.createResultErr("Failed to read from socket.") catch unreachable;
+        return v.createResultErr("Failed to read from socket.");
     };
 
-    const raw_data = data;
-    const string_obj = v.createString(raw_data) catch unreachable;
+    const raw_data = try v.allocator.dupe(u8, data);
+    const string_obj = try v.createString(raw_data);
 
     reader.interface.toss(data.len);
 
-    const res = v.createResultOk(.{ .Object = &string_obj.obj }) catch unreachable;
+    const res = try v.createResultOk(.{ .Object = &string_obj.obj });
     return res;
 }
 
-pub fn send(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn send(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 2) {
-        return v.createResultErr("client.send() expects exactly 1 argument (String)") catch unreachable;
+        return v.createResultErr("client.send() expects exactly 1 argument (String)");
     }
 
     if (args[0] != .Object or args[0].Object.obj_type != .System) {
-        return v.createResultErr("send() must be called on a System object") catch unreachable;
+        return v.createResultErr("send() must be called on a System object");
     }
     if (args[1] != .Object or args[1].Object.obj_type != .String) {
-        return v.createResultErr("client.send() payload must be a String") catch unreachable;
+        return v.createResultErr("client.send() payload must be a String");
     }
 
     const sys_obj = args[0].Object.toSystem();
     if (sys_obj.kind != .TcpClient) {
-        return v.createResultErr("send() can only be called on a TcpClient") catch unreachable;
+        return v.createResultErr("send() can only be called on a TcpClient");
     }
 
     const payload = args[1].Object.toString().chars;
@@ -255,23 +255,23 @@ pub fn send(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     var writer = conn_ptr.writer(io, &buf);
 
     writer.interface.writeAll(payload) catch {
-        return v.createResultErr("Failed to write to socket.") catch unreachable;
+        return v.createResultErr("Failed to write to socket.");
     };
 
-    writer.interface.flush() catch unreachable;
+    try writer.interface.flush();
 
-    return v.createResultOk(.Null) catch unreachable;
+    return v.createResultOk(.Null);
 }
 
-pub fn close(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn close(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1) {
-        return v.createResultErr("close() takes no arguments") catch unreachable;
+        return v.createResultErr("close() takes no arguments");
     }
 
     if (args[0] != .Object or args[0].Object.obj_type != .System) {
-        return v.createResultErr("close() must be called on a System object") catch unreachable;
+        return v.createResultErr("close() must be called on a System object");
     }
 
     const sys_obj = args[0].Object.toSystem();
@@ -287,11 +287,11 @@ pub fn close(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
             server_ptr.deinit(io);
         },
         else => {
-            return v.createResultErr("close() not implemented for this system object") catch unreachable;
+            return v.createResultErr("close() not implemented for this system object");
         },
     }
 
-    return v.createResultOk(.Null) catch unreachable;
+    return v.createResultOk(.Null);
 }
 
 ///RDT is for Request Descriptor Table

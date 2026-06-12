@@ -4,7 +4,7 @@ const VM = @import("../../runtime/vm.zig").VM;
 const Value = value_mod.Value;
 const TableObj = value_mod.TableObj;
 
-pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     if (args[0] != .Object or args[0].Object.obj_type != .Table) {
         //TODO: return a error
         return .Null;
@@ -14,13 +14,13 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     if (arg_count == 2) {
         const v: *VM = @ptrCast(@alignCast(vm));
-        table.elements.append(v.allocator, args[1]) catch unreachable;
+        try table.elements.append(v.allocator, args[1]);
     }
 
     return args[0];
 }
 
-pub fn pop(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn pop(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     _ = vm;
     if (args[0] != .Object or args[0].Object.obj_type != .Table) {
         //TODO: return a error
@@ -38,7 +38,7 @@ pub fn pop(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     return .Null;
 }
 
-pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count < 2 or args[0] != .Object or args[0].Object.obj_type != .Table) {
@@ -49,20 +49,20 @@ pub fn map(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const table = args[0].Object.toTable();
     const lambda = args[1];
 
-    const new_table = v.createTable() catch unreachable;
+    const new_table = try v.createTable();
 
     for (table.elements.items) |elem| {
         const result = v.executeLambda(lambda, elem) catch {
             return .Null;
         };
 
-        new_table.elements.append(v.allocator, result) catch unreachable;
+        try new_table.elements.append(v.allocator, result);
     }
 
     return .{ .Object = &new_table.obj };
 }
 
-pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count < 2 or args[0] != .Object or args[0].Object.obj_type != .Table) {
@@ -73,7 +73,7 @@ pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     const table = args[0].Object.toTable();
     const lambda = args[1];
 
-    const new_table = v.createTable() catch unreachable;
+    const new_table = try v.createTable();
 
     for (table.elements.items) |elem| {
         const condition_res = v.executeLambda(lambda, elem) catch {
@@ -81,13 +81,13 @@ pub fn filter(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         };
 
         if (!VM.isFalsey(condition_res)) {
-            new_table.elements.append(v.allocator, elem) catch unreachable;
+            try new_table.elements.append(v.allocator, elem);
         }
     }
     return .{ .Object = &new_table.obj };
 }
 
-pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     _ = vm;
 
     if (arg_count > 1 or args[0] != .Object or args[0].Object.obj_type != .Table) {

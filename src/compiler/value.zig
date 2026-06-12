@@ -218,7 +218,7 @@ pub const SystemObj = struct {
     methods: std.StringHashMap(Value),
 };
 
-pub const NativeFn = *const fn (vm: *anyopaque, arg_count: u8, args: [*]Value) Value;
+pub const NativeFn = *const fn (vm: *anyopaque, arg_count: u8, args: [*]Value) anyerror!Value;
 
 pub const NativeObj = struct {
     obj: Obj,

@@ -20,7 +20,7 @@ const VM = @import("../runtime/vm.zig").VM;
 ///     inode: Number,   # File system inode number
 ///     mode: Number     # POSIX permissions mode (e.g., 33188 for typical files)
 /// }
-pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1 or args[0] != .Object or args[0].Object.obj_type != .String) {
@@ -35,18 +35,18 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         return .Null;
     };
 
-    var stat_table = v.createTable() catch unreachable;
+    var stat_table = try v.createTable();
 
-    stat_table.fields.put("size", .{ .Number = @intCast(file_stat.size) }) catch unreachable;
-    stat_table.fields.put("mtime", .{ .Number = @intCast(file_stat.mtime.toMilliseconds()) }) catch unreachable;
+    try stat_table.fields.put("size", .{ .Number = @intCast(file_stat.size) });
+    try stat_table.fields.put("mtime", .{ .Number = @intCast(file_stat.mtime.toMilliseconds()) });
     if (file_stat.atime) |atime| {
-        stat_table.fields.put("atime", .{ .Number = @intCast(atime.toMilliseconds()) }) catch unreachable;
+        try stat_table.fields.put("atime", .{ .Number = @intCast(atime.toMilliseconds()) });
     }
-    stat_table.fields.put("ctime", .{ .Number = @intCast(file_stat.ctime.toMilliseconds()) }) catch unreachable;
-    stat_table.fields.put("inode", .{ .Number = @intCast(file_stat.inode) }) catch unreachable;
-    stat_table.fields.put("mode", .{ .Number = @intCast(@intFromEnum(file_stat.permissions)) }) catch unreachable;
+    try stat_table.fields.put("ctime", .{ .Number = @intCast(file_stat.ctime.toMilliseconds()) });
+    try stat_table.fields.put("inode", .{ .Number = @intCast(file_stat.inode) });
+    try stat_table.fields.put("mode", .{ .Number = @intCast(@intFromEnum(file_stat.permissions)) });
 
-    const ns_str = v.createString("FileType") catch unreachable;
+    const ns_str = try v.createString("FileType");
 
     const kind_str: []const u8 = switch (file_stat.kind) {
         .file => "File",
@@ -55,11 +55,11 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
         else => "Unknown",
     };
 
-    const name_str = v.createString(kind_str) catch unreachable;
+    const name_str = try v.createString(kind_str);
 
-    const kind_var = v.createVariant(ns_str, name_str, &.{}) catch unreachable;
+    const kind_var = try v.createVariant(ns_str, name_str, &.{});
 
-    stat_table.fields.put("kind", .{ .Object = &kind_var.obj }) catch unreachable;
+    try stat_table.fields.put("kind", .{ .Object = &kind_var.obj });
 
     return .{ .Object = &stat_table.obj };
 }

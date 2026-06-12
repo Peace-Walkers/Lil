@@ -4,7 +4,7 @@ const VM = @import("../../runtime/vm.zig").VM;
 const Value = value_mod.Value;
 const TableObj = value_mod.TableObj;
 
-pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     if (args[0] != .Object or args[0].Object.obj_type != .String) {
         //TODO: return a error
         return .Null;
@@ -15,7 +15,7 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     if (arg_count == 2) {
         const v: *VM = @ptrCast(@alignCast(vm));
 
-        var new_string = v.allocator.alloc(u8, string.chars.len + 1) catch unreachable;
+        var new_string = try v.allocator.alloc(u8, string.chars.len + 1);
         @memcpy(new_string[0..string.chars.len], string.chars);
         new_string[string.chars.len] = args[1].Object.toString().chars[0];
         v.allocator.free(string.chars);
@@ -25,7 +25,7 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     return args[0];
 }
 
-pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     _ = vm;
     _ = arg_count;
 
@@ -39,7 +39,7 @@ pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     return .{ .Number = @intCast(string.chars.len) };
 }
 
-pub fn split(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn split(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     if (args[0] != .Object or args[0].Object.obj_type != .String) {
         //TODO: return a error
         return .Null;
@@ -59,11 +59,11 @@ pub fn split(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
 
     var splitted = std.mem.splitAny(u8, string.chars, sep.chars);
 
-    const table = v.createTable() catch unreachable;
+    const table = try v.createTable();
 
     while (splitted.next()) |slice| {
-        const split_obj = v.createString(slice) catch unreachable;
-        table.elements.append(v.allocator, .{ .Object = &split_obj.obj }) catch unreachable;
+        const split_obj = try v.createString(slice);
+        try table.elements.append(v.allocator, .{ .Object = &split_obj.obj });
     }
 
     return .{ .Object = &table.obj };
