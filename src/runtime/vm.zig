@@ -289,8 +289,10 @@ pub const VM = struct {
     }
 
     pub fn createResultOk(self: *Self, payload: Value) !Value {
-        const ns_str = try self.createString("Result");
-        const name_str = try self.createString("Ok");
+        const result = try self.allocator.dupe(u8, "Result");
+        const ok = try self.allocator.dupe(u8, "Ok");
+        const ns_str = try self.createString(result);
+        const name_str = try self.createString(ok);
 
         const payload_slice = try self.allocator.alloc(Value, 1);
         payload_slice[0] = payload;
@@ -300,8 +302,10 @@ pub const VM = struct {
     }
 
     pub fn createResultErr(self: *Self, error_msg: []const u8) !Value {
-        const ns_str = try self.createString("Result");
-        const name_str = try self.createString("Err");
+        const result = try self.allocator.dupe(u8, "Result");
+        const err = try self.allocator.dupe(u8, "Err");
+        const ns_str = try self.createString(result);
+        const name_str = try self.createString(err);
         const err_str = try self.createString(error_msg);
 
         const payload_slice = try self.allocator.alloc(Value, 1);
@@ -609,6 +613,9 @@ pub const VM = struct {
                     const name = name_obj.chars;
 
                     const value = self.pop();
+                    if (self.globals.get(name)) |old_val| {
+                        old_val.release(self.allocator);
+                    }
                     try self.globals.put(name, value);
                 },
                 .OP_SET_GLOBAL => {
@@ -842,6 +849,11 @@ pub const VM = struct {
                                     self.panic("{s}", .{@errorName(err)});
                                     return error.RuntimeError;
                                 };
+
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator);
+                                }
 
                                 self.stack_top -= total_args;
                                 self.push(result);
@@ -1109,6 +1121,10 @@ pub const VM = struct {
                                 return error.RuntimeError;
                             };
 
+                            var i: usize = 0;
+                            while (i < arg_count + 1) : (i += 1)
+                                self.stack[self.stack_top - 1 - i].release(self.allocator);
+
                             self.stack_top -= (arg_count + 1);
                             self.push(result);
                         },
@@ -1138,8 +1154,11 @@ pub const VM = struct {
                     }
 
                     if (std.mem.eql(u8, variant.variant_name.chars, "Ok")) {
-                        _ = self.pop();
-                        self.push(variant.payload[0]);
+                        const popped_variant = self.pop();
+                        const payload_val = variant.payload[0];
+                        payload_val.retain();
+                        self.push(payload_val);
+                        popped_variant.release(self.allocator);
                     } else {
                         if (self.frame_count == 1) {
                             //INFO: main script case
@@ -1149,9 +1168,15 @@ pub const VM = struct {
                         } else {
                             //INFO: inside a function case
                             const err_result = self.pop();
+                            const current_frame = self.frames[self.frame_count - 1];
+
+                            var i: usize = current_frame.slot_offset;
+                            while (i < self.stack_top) : (i += 1) {
+                                self.stack[i].release(self.allocator);
+                            }
 
                             self.frame_count -= 1;
-                            self.stack_top = self.frames[self.frame_count].slot_offset;
+                            self.stack_top = current_frame.slot_offset;
                             self.push(err_result);
                         }
                     }
@@ -1314,3 +1339,4 @@ pub const VM = struct {
         }
     }
 };
+
