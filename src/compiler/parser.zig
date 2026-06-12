@@ -1,12 +1,14 @@
 const std = @import("std");
 const lexer = @import("lexer.zig");
 const ast = @import("ast.zig");
+const ErrorReporter = @import("diagnostic.zig").ErrorReporter;
 
 pub const ParseError = error{
     SyntaxError,
     OutOfMemory,
     Overflow,
     InvalidCharacter,
+    ReportError,
 };
 
 pub const Parser = struct {
@@ -16,15 +18,15 @@ pub const Parser = struct {
     arena: std.mem.Allocator,
     current: lexer.Token,
     previous: lexer.Token,
-    had_error: bool,
+    err_accumulator: ErrorReporter,
 
-    pub fn init(scanner: *lexer.Lexer, arena: std.mem.Allocator) Self {
+    pub fn init(scanner: *lexer.Lexer, arena: std.mem.Allocator, rep: ErrorReporter) Self {
         return .{
             .scanner = scanner,
             .arena = arena,
             .current = undefined,
             .previous = undefined,
-            .had_error = false,
+            .err_accumulator = rep,
         };
     }
 
@@ -35,9 +37,24 @@ pub const Parser = struct {
             self.current = self.scanner.next();
             if (self.current.tag != .Error) break;
 
-            std.debug.print("Paring Error: invalid token :'{s}'\n", .{self.current.lexeme});
+            self.err_accumulator.report(self.arena, self.current.line, "Invalid token: '{s}'", .{self.current.lexeme}) catch {
+                std.debug.print("Paring Error: invalid token :'{s}'\n", .{self.current.lexeme});
+            };
+        }
+    }
 
-            self.had_error = true;
+    fn synchronize(self: *Self) void {
+        self.advance();
+
+        while (self.current.tag != .Eof) {
+            if (self.previous.tag == .NewLine) return;
+
+            switch (self.current.tag) {
+                .Let, .Mut, .Fn, .Type, .If, .While, .Return, .Match => return,
+                else => {},
+            }
+
+            self.advance();
         }
     }
 
@@ -57,8 +74,7 @@ pub const Parser = struct {
             return;
         }
 
-        std.debug.print("Syntax error on line {d}: {s}\n", .{ self.current.line, message });
-        self.had_error = true;
+        try self.err_accumulator.report(self.arena, self.current.line, "Syntax error: {s}", .{message});
         return error.SyntaxError;
     }
 
@@ -224,8 +240,7 @@ pub const Parser = struct {
                 } else if (expr == .PathAccess) {
                     for (expr.PathAccess.path) |p| try path.append(self.arena, p);
                 } else {
-                    std.debug.print("Syntax error on line {d}: Expected identifier before '::'.\n", .{self.current.line});
-                    self.had_error = true;
+                    try self.err_accumulator.report(self.arena, self.current.line, "Expected identifier before '::'.", .{});
                     return error.SyntaxError;
                 }
 
@@ -438,8 +453,7 @@ pub const Parser = struct {
                     if (is_first) is_map = true;
 
                     if (!is_map) {
-                        std.debug.print("Syntax error on line {d}: Cannot mix table fields (:) and map entries (=>).\n", .{self.current.line});
-                        self.had_error = true;
+                        try self.err_accumulator.report(self.arena, self.current.line, "Cannot mix table fields (:) and map entries (=>).", .{});
                         return error.SyntaxError;
                     }
 
@@ -449,14 +463,12 @@ pub const Parser = struct {
                     if (is_first) is_map = false;
 
                     if (is_map) {
-                        std.debug.print("Syntax error on line {d}: Cannot mix map entries (=>) and table fields (:).\n", .{self.current.line});
-                        self.had_error = true;
+                        try self.err_accumulator.report(self.arena, self.current.line, "Cannot mix map entries (=>) and table fields (:).", .{});
                         return error.SyntaxError;
                     }
 
                     if (expr != .Identifier) {
-                        std.debug.print("Syntax error on line {d}: Table keys must be identifiers.\n", .{self.current.line});
-                        self.had_error = true;
+                        try self.err_accumulator.report(self.arena, self.current.line, "Table keys must be identifiers.", .{});
                         return error.SyntaxError;
                     }
 
@@ -468,8 +480,7 @@ pub const Parser = struct {
                     if (is_first) is_map = false;
 
                     if (is_map) {
-                        std.debug.print("Syntax error on line {d}: Cannot mix map entries and raw elements.\n", .{self.current.line});
-                        self.had_error = true;
+                        try self.err_accumulator.report(self.arena, self.current.line, "Cannot mix map entries and raw elements.", .{});
                         return error.SyntaxError;
                     }
 
@@ -604,8 +615,7 @@ pub const Parser = struct {
                     return .{ .Set = .{ .object = obj_ptr, .name = pa.path[pa.path.len - 1], .value = heap_node, .line = line } };
                 },
                 else => {
-                    std.debug.print("Syntax error on line {d}: Invalid assignment target.\n", .{self.current.line});
-                    self.had_error = true;
+                    try self.err_accumulator.report(self.arena, self.current.line, "Invalid assignment target.", .{});
                     return error.SyntaxError;
                 },
             }
@@ -657,7 +667,8 @@ pub const Parser = struct {
             return expr;
         }
 
-        return .{ .Identifier = "Expected a litteral value" };
+        try self.err_accumulator.report(self.arena, self.current.line, "Expected an expression.", .{});
+        return error.SyntaxError;
     }
 
     fn parse_logical_or(self: *Self) ParseError!ast.Node {
@@ -769,7 +780,10 @@ pub const Parser = struct {
         while (self.current.tag != .Eof) {
             if (self.match(.NewLine)) continue;
 
-            const decl = try self.parse_decl();
+            const decl = self.parse_decl() catch {
+                self.synchronize();
+                continue;
+            };
             try statement.append(self.arena, decl);
         }
 
@@ -778,11 +792,13 @@ pub const Parser = struct {
 };
 
 const testing = std.testing;
+const diagnostics = @import("diagnostic.zig");
 
 // --- Helper function to simplify test setup ---
 fn setupParserTest(allocator: std.mem.Allocator, source: []const u8) !ast.Node {
     var scanner = lexer.Lexer.init(source);
-    var prsr = Parser.init(&scanner, allocator);
+    var err_accumulator = diagnostics.ErrorAccumulator.init(allocator);
+    var prsr = Parser.init(&scanner, allocator, err_accumulator.reporter());
     return prsr.parse();
 }
 
@@ -1065,4 +1081,22 @@ test "parser: variant call at EOF" {
 
     try std.testing.expectEqual(.Identifier, std.meta.activeTag(args[0]));
     try std.testing.expectEqualStrings("test", args[0].Identifier);
+}
+
+test "parser: errors accumulations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const source =
+        \\let a = 10 + *  2
+        \\let b = 5
+        \\fn add(x y):
+        \\  return x + y
+    ;
+
+    var scanner = lexer.Lexer.init(source);
+    var err_accumulator = diagnostics.ErrorAccumulator.init(arena.allocator());
+    var prsr = Parser.init(&scanner, arena.allocator(), err_accumulator.reporter());
+    _ = prsr.parse() catch {};
+    try std.testing.expectEqual(err_accumulator.has_error, true);
+    try std.testing.expectEqual(4, err_accumulator.errors.items.len);
 }
