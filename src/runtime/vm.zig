@@ -155,7 +155,7 @@ pub const VM = struct {
         try self.globals.put(name, value);
     }
 
-    pub fn createNative(self: *Self, name: []const u8, func: NativeFn) !Value {
+    pub fn createNative(self: *Self, comptime name: []const u8, func: NativeFn) !Value {
         const native_obj = try self.allocator.create(NativeObj);
         native_obj.* = .{
             .obj = .{ .obj_type = .Native, .next = null },
@@ -165,7 +165,7 @@ pub const VM = struct {
         return .{ .Object = &native_obj.obj };
     }
 
-    pub fn bindNative(self: *Self, table: *TableObj, name: []const u8, func: NativeFn) !void {
+    pub fn bindNative(self: *Self, table: *TableObj, comptime name: []const u8, func: NativeFn) !void {
         const native_val = try self.createNative(name, func);
         try table.fields.put(name, native_val);
     }

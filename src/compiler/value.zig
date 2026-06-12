@@ -63,6 +63,17 @@ pub const Value = union(ValueType) {
             .Object => |obj| obj.print(indent),
         }
     }
+
+    pub fn retain(self: Value) void {
+        if (self == .Object)
+            self.Object.ref_count -= 1;
+    }
+
+    pub fn release(self: Value, allocator: std.mem.Allocator) void {
+        if (self == .Object) {
+            self.Object.release(allocator);
+        }
+    }
 };
 
 pub const ObjType = enum {
@@ -77,6 +88,7 @@ pub const ObjType = enum {
 
 pub const Obj = struct {
     obj_type: ObjType,
+    ref_count: usize = 1,
     next: ?*Obj,
 
     pub fn toString(self: *Obj) *StringObj {
@@ -105,6 +117,80 @@ pub const Obj = struct {
 
     pub fn toSystem(self: *Obj) *SystemObj {
         return @fieldParentPtr("obj", self);
+    }
+
+    pub fn release(self: *Obj, allocator: std.mem.Allocator) void {
+        self.ref_count -= 1;
+        if (self.ref_count == 0) {
+            self.free(allocator);
+        }
+    }
+
+    pub fn free(self: *Obj, allocator: std.mem.Allocator) void {
+        switch (self.obj_type) {
+            .String => {
+                const string_obj = self.toString();
+                allocator.free(string_obj.chars);
+                allocator.destroy(string_obj);
+            },
+            .Table => {
+                const table_obj = self.toTable();
+
+                for (table_obj.elements.items) |e| {
+                    if (e == .Object) e.Object.release(allocator);
+                }
+
+                var it = table_obj.fields.iterator();
+                while (it.next()) |entry| {
+                    if (entry.value_ptr.* == .Object) entry.value_ptr.*.Object.release(allocator);
+                }
+                table_obj.elements.deinit(allocator);
+                table_obj.fields.deinit();
+                allocator.destroy(table_obj);
+            },
+            .Function => {
+                const fn_obj = self.toFunction();
+                fn_obj.chunk.deinit();
+                if (fn_obj.name) |name| {
+                    name.obj.release(allocator);
+                }
+                allocator.destroy(fn_obj);
+            },
+            .Variant => {
+                const variant_obj = self.toVariant();
+                if (variant_obj.namespace) |ns| {
+                    ns.obj.release(allocator);
+                }
+                variant_obj.variant_name.obj.release(allocator);
+                for (variant_obj.payload) |item| {
+                    if (item == .Object) {
+                        item.Object.release(allocator);
+                    }
+                }
+                allocator.free(variant_obj.payload);
+                allocator.destroy(variant_obj);
+            },
+            .Native => {
+                const native_obj = self.toNative();
+                allocator.destroy(native_obj);
+            },
+            .Map => {
+                const map_obj = self.toMap();
+                var it = map_obj.hashmap.iterator();
+                while (it.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+
+                    if (key == .Object) key.Object.release(allocator);
+                    if (value == .Object) value.Object.release(allocator);
+                }
+                map_obj.hashmap.deinit();
+                allocator.destroy(map_obj);
+            },
+            .System => {
+                //TODO:
+            },
+        }
     }
 
     pub fn print(self: *Obj, indent: usize) void {
