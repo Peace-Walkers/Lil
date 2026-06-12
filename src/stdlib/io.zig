@@ -6,7 +6,7 @@ const VariantObj = value_mod.VariantObj;
 const TableObj = value_mod.TableObj;
 const Value = value_mod.Value;
 
-fn internalPrint(v: *VM, arg_count: u8, args: [*]Value, newline: bool) Value {
+fn internalPrint(v: *VM, arg_count: u8, args: [*]Value, newline: bool) !Value {
     if (arg_count == 0) {
         std.debug.print("\n", .{});
         return .Null;
@@ -23,7 +23,7 @@ fn internalPrint(v: *VM, arg_count: u8, args: [*]Value, newline: bool) Value {
         while (i < string_obj.chars.len) : (i += 1) {
             if (string_obj.chars[i] == '{' and i + 1 < string_obj.chars.len) {
                 if (string_obj.chars[i + 1] == '}') {
-                    mark.append(v.allocator, i) catch unreachable;
+                    try mark.append(v.allocator, i);
                     i += 1;
                 }
             }
@@ -52,22 +52,22 @@ fn internalPrint(v: *VM, arg_count: u8, args: [*]Value, newline: bool) Value {
     return .Null;
 }
 
-pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn print(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     // _ = vm;
     const v: *VM = @ptrCast(@alignCast(vm));
     return internalPrint(v, arg_count, args, false);
 }
 
-pub fn println(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn println(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
     return internalPrint(v, arg_count, args, true);
 }
 
-pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const v: *VM = @ptrCast(@alignCast(vm));
 
     if (arg_count != 1 or args[0] != .Object or args[0].Object.obj_type != .String) {
-        return v.createResultErr("io::read expect exactly 1 string argument (the path).") catch unreachable;
+        return v.createResultErr("io::read expect exactly 1 string argument (the path).");
     }
 
     const path_obj = args[0].Object.toString();
@@ -77,20 +77,20 @@ pub fn read(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
     if (std.mem.eql(u8, path, "stdin")) {
         var temp_buf: [1024]u8 = undefined;
         const read_len = v.io.in.readSliceShort(&temp_buf) catch 0;
-        content_slice = v.allocator.alloc(u8, read_len) catch unreachable;
+        content_slice = try v.allocator.alloc(u8, read_len);
         @memcpy(content_slice, temp_buf[0..read_len]);
     } else {
         content_slice = std.Io.Dir.cwd().readFileAlloc(v.io.system, path, v.allocator, .unlimited) catch {
-            return v.createResultErr("Failed to read file.") catch unreachable;
+            return try v.createResultErr("Failed to read file.");
         };
     }
 
-    const content_str = v.createString(content_slice) catch unreachable;
+    const content_str = try v.createString(content_slice);
 
-    var result_table = v.createTable() catch unreachable;
+    var result_table = try v.createTable();
 
-    result_table.fields.put("content", .{ .Object = &content_str.obj }) catch unreachable;
-    result_table.fields.put("cursor", .{ .Number = @intCast(content_slice.len) }) catch unreachable;
+    try result_table.fields.put("content", .{ .Object = &content_str.obj });
+    try result_table.fields.put("cursor", .{ .Number = @intCast(content_slice.len) });
 
-    return v.createResultOk(.{ .Object = &result_table.obj }) catch unreachable;
+    return v.createResultOk(.{ .Object = &result_table.obj });
 }

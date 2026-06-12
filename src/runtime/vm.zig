@@ -806,7 +806,10 @@ pub const VM = struct {
                                 const total_args = arg_count + 1;
                                 const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
 
-                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr) catch |err| {
+                                    self.panic("{s}", .{@errorName(err)});
+                                    return error.RuntimeError;
+                                };
 
                                 self.stack_top -= total_args;
                                 self.push(result);
@@ -820,7 +823,10 @@ pub const VM = struct {
                                 const total_args = arg_count + 1;
                                 const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
 
-                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr);
+                                const result = native_func(@ptrCast(self), total_args, args_slice.ptr) catch |err| {
+                                    self.panic("{s}", .{@errorName(err)});
+                                    return error.RuntimeError;
+                                };
 
                                 self.stack_top -= total_args;
                                 self.push(result);
@@ -836,7 +842,10 @@ pub const VM = struct {
                                     if (self.result_methods.get(method_name)) |native_fn| {
                                         const total_args = arg_count + 1;
                                         const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
-                                        const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                        const result = native_fn(@ptrCast(self), total_args, args_slice.ptr) catch |err| {
+                                            self.panic("{s}", .{@errorName(err)});
+                                            return error.RuntimeError;
+                                        };
                                         self.stack_top -= total_args;
                                         self.push(result);
                                     } else {
@@ -857,7 +866,10 @@ pub const VM = struct {
                             if (self.map_methods.get(method_name)) |native_fn| {
                                 const total_args = arg_count + 1;
                                 const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
-                                const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                const result = native_fn(@ptrCast(self), total_args, args_slice.ptr) catch |err| {
+                                    self.panic("{s}", .{@errorName(err)});
+                                    return error.RuntimeError;
+                                };
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -878,7 +890,10 @@ pub const VM = struct {
                                 const total_args = arg_count + 1;
                                 const args_slice = self.stack[self.stack_top - total_args .. self.stack_top];
 
-                                const result = native_fn(@ptrCast(self), total_args, args_slice.ptr);
+                                const result = native_fn(@ptrCast(self), total_args, args_slice.ptr) catch |err| {
+                                    self.panic("{s}", .{@errorName(err)});
+                                    return error.RuntimeError;
+                                };
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -1051,7 +1066,10 @@ pub const VM = struct {
                         .Native => {
                             const native_obj = callee.Object.toNative();
                             const args_slice = self.stack[self.stack_top - arg_count .. self.stack_top];
-                            const result = native_obj.function(self, arg_count, args_slice.ptr);
+                            const result = native_obj.function(self, arg_count, args_slice.ptr) catch |err| {
+                                self.panic("{s}", .{@errorName(err)});
+                                return error.RuntimeError;
+                            };
 
                             self.stack_top -= (arg_count + 1);
                             self.push(result);

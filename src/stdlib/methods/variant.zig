@@ -4,7 +4,7 @@ const VM = @import("../../runtime/vm.zig").VM;
 const Value = value_mod.Value;
 const TableObj = value_mod.TableObj;
 
-pub fn unwrap(vm: *anyopaque, arg_count: u8, args: [*]Value) Value {
+pub fn unwrap(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     _ = vm;
     _ = arg_count;
 
