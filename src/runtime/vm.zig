@@ -111,12 +111,25 @@ pub const VM = struct {
         const lexer = @import("../compiler/lexer.zig");
         const parser = @import("../compiler/parser.zig");
         const compiler = @import("../compiler/compiler.zig");
+        const diagnostics = @import("../compiler/diagnostic.zig");
+
+        var frontend_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const frontend_alloc = frontend_arena.allocator();
+        var err_accumulator = diagnostics.ErrorAccumulator.init(frontend_alloc);
 
         var scanner = lexer.Lexer.init(source);
-        var p = parser.Parser.init(&scanner, self.allocator);
-        const ast_root = try p.parse();
+        var p = parser.Parser.init(&scanner, self.allocator, err_accumulator.reporter());
+        const ast_root = p.parse() catch {
+            std.debug.print("Fatal Parsing Error.\n”", .{});
+            return error.CompileError;
+        };
 
-        if (p.had_error) return error.CompileError;
+        if (err_accumulator.has_error) {
+            err_accumulator.printErrors();
+
+            frontend_arena.deinit();
+            return error.CompileError;
+        }
 
         var chunk = chunk_mod.Chunk.init(self.allocator);
         var comp = compiler.Compiler.init(self.allocator, &chunk);
@@ -132,6 +145,8 @@ pub const VM = struct {
             .name = null,
             .can_fail = true,
         };
+
+        frontend_arena.deinit();
 
         try self.interpret(script_function);
     }
@@ -159,12 +174,17 @@ pub const VM = struct {
         const lexer = @import("../compiler/lexer.zig");
         const parser = @import("../compiler/parser.zig");
         const compiler = @import("../compiler/compiler.zig");
+        const diagnostics = @import("../compiler/diagnostic.zig");
 
         var scanner = lexer.Lexer.init(source);
-        var p = parser.Parser.init(&scanner, self.allocator);
+        var err_accumulator = diagnostics.ErrorAccumulator.init(self.allocator);
+        var p = parser.Parser.init(&scanner, self.allocator, err_accumulator.reporter());
         const ast_root = try p.parse();
 
-        if (p.had_error) return error.CompileError;
+        if (err_accumulator.has_error) {
+            err_accumulator.printErrors();
+            return error.CompileError;
+        }
 
         var chunk = chunk_mod.Chunk.init(self.allocator);
         var comp = compiler.Compiler.init(self.allocator, &chunk);
