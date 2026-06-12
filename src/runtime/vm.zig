@@ -616,12 +616,15 @@ pub const VM = struct {
                     const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
-                    if (!self.globals.contains(name)) {
+                    if (self.globals.get(name)) |old_val| {
+                        old_val.release(self.allocator);
+                    } else {
                         std.debug.print("Error undefined variable: '{s}'.\n", .{name});
                         return error.RuntimeError;
                     }
 
                     const value = self.peek(0);
+                    value.retain();
                     try self.globals.put(name, value);
                 },
                 .OP_GET_GLOBAL => {
@@ -630,6 +633,7 @@ pub const VM = struct {
                     const name = name_obj.chars;
 
                     if (self.globals.get(name)) |value| {
+                        value.retain();
                         self.push(value);
                     } else {
                         self.panic("Undefined variable '{s}'\n", .{name});
@@ -735,6 +739,7 @@ pub const VM = struct {
                             const table = instance_val.Object.toTable();
 
                             if (table.fields.get(property_name)) |value| {
+                                value.retain();
                                 self.push(value);
                             } else {
                                 std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{property_name});
@@ -745,6 +750,7 @@ pub const VM = struct {
                             const sys_obj = instance_val.Object.toSystem();
 
                             if (sys_obj.methods.get(property_name)) |method| {
+                                method.retain();
                                 self.push(method);
                             } else {
                                 self.panic("System object has no property or method named '{s}'", .{property_name});
@@ -769,9 +775,15 @@ pub const VM = struct {
 
                     const table = instance_val.Object.toTable();
 
+                    if (table.fields.get(property_name)) |old_val| {
+                        old_val.release(self.allocator);
+                    }
+
                     try table.fields.put(property_name, value);
 
+                    value.retain();
                     self.push(value);
+                    instance_val.release(self.allocator);
                 },
                 .OP_INVOKE => {
                     const methode_name_val = self.readConstant();
@@ -1029,15 +1041,21 @@ pub const VM = struct {
                     self.push(final_result);
                 },
                 .OP_POP => {
-                    _ = self.pop();
+                    const val = self.pop();
+                    val.release(self.allocator);
                 },
                 .OP_GET_LOCAL => {
                     const slot = self.readByte();
-                    self.push(self.stack[frame.slot_offset + slot]);
+                    const val = self.stack[frame.slot_offset + slot];
+                    val.retain();
+                    self.push(val);
                 },
                 .OP_SET_LOCAL => {
                     const slot = self.readByte();
-                    self.stack[frame.slot_offset + slot] = self.peek(0);
+                    const new_value = self.peek(0);
+                    new_value.retain();
+                    self.stack[frame.slot_offset + slot].release(self.allocator);
+                    self.stack[frame.slot_offset + slot] = new_value;
                 },
                 .OP_JUMP_IF_FALSE => {
                     const offset = self.readShort();
@@ -1151,6 +1169,7 @@ pub const VM = struct {
                         .Map => {
                             const map = object_val.Object.toMap();
                             if (map.hashmap.get(index_val)) |v| {
+                                v.retain();
                                 self.push(v);
                             } else {
                                 self.panic("Unknown key in Map.", .{});
@@ -1169,6 +1188,7 @@ pub const VM = struct {
                                 self.panic("Array index out of bounds: length is {d} but index is {d}.", .{ table.elements.items.len, index });
                                 return error.RuntimeError;
                             }
+                            table.elements.items[index].retain();
                             self.push(table.elements.items[index]);
                         },
                         .String => {

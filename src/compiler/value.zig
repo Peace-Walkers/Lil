@@ -66,7 +66,7 @@ pub const Value = union(ValueType) {
 
     pub fn retain(self: Value) void {
         if (self == .Object)
-            self.Object.ref_count -= 1;
+            self.Object.ref_count += 1;
     }
 
     pub fn release(self: Value, allocator: std.mem.Allocator) void {
