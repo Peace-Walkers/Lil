@@ -1053,7 +1053,7 @@ test "parser: variant call at EOF" {
 
     const root = try setupParserTest(arena.allocator(), source);
 
-    const call_node = root.Root.statements[0].ExpressionStatement.*;
+    const call_node = root.Root.statements[0].ExpressionStatement.expr.*;
 
     try std.testing.expectEqual(.PathCall, std.meta.activeTag(call_node));
     try std.testing.expectEqual(call_node.PathCall.path.len, 2);
