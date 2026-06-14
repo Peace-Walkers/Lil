@@ -188,6 +188,15 @@ pub const Obj = struct {
                 allocator.destroy(map_obj);
             },
             .System => {
+                const sys_obj = self.toSystem();
+
+                var it = sys_obj.methods.iterator();
+                while (it.next()) |entry| {
+                    entry.value_ptr.*.release(allocator);
+                }
+
+                sys_obj.methods.deinit();
+                allocator.destroy(sys_obj);
                 //TODO:
             },
         }
