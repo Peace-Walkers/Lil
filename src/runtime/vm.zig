@@ -766,6 +766,7 @@ pub const VM = struct {
                         },
                         else => unreachable,
                     }
+                    instance_val.release(self.allocator);
                 },
                 .OP_SET_PROPRETY => {
                     const name_val = self.readConstant();
@@ -872,6 +873,10 @@ pub const VM = struct {
                                     return error.RuntimeError;
                                 };
 
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator);
+                                }
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -890,6 +895,10 @@ pub const VM = struct {
                                             self.panic("{s}", .{@errorName(err)});
                                             return error.RuntimeError;
                                         };
+                                        var i: usize = 0;
+                                        while (i < total_args) : (i += 1) {
+                                            self.stack[self.stack_top - 1 - i].release(self.allocator);
+                                        }
                                         self.stack_top -= total_args;
                                         self.push(result);
                                     } else {
@@ -914,6 +923,10 @@ pub const VM = struct {
                                     self.panic("{s}", .{@errorName(err)});
                                     return error.RuntimeError;
                                 };
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator);
+                                }
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -938,6 +951,10 @@ pub const VM = struct {
                                     self.panic("{s}", .{@errorName(err)});
                                     return error.RuntimeError;
                                 };
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator);
+                                }
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -1009,6 +1026,8 @@ pub const VM = struct {
                     const b = self.pop();
 
                     self.push(.{ .Boolean = try self.valuesEquals(a, b) });
+                    a.release(self.allocator);
+                    b.release(self.allocator);
                 },
                 .OP_RETURN => {
                     const result = self.pop();
@@ -1029,6 +1048,11 @@ pub const VM = struct {
                         if (!is_already_result) {
                             final_result = self.createResultOk(result) catch unreachable;
                         }
+                    }
+
+                    var i: usize = current_frame.slot_offset;
+                    while (i < self.stack_top) : (i += 1) {
+                        self.stack[i].release(self.allocator);
                     }
 
                     self.frame_count -= 1;
@@ -1241,6 +1265,8 @@ pub const VM = struct {
                             return error.RuntimeError;
                         },
                     }
+                    index_val.release(self.allocator);
+                    object_val.release(self.allocator);
                 },
                 .OP_MATCH_TEST => {
                     const has_ns = self.readByte();
@@ -1339,4 +1365,3 @@ pub const VM = struct {
         }
     }
 };
-
