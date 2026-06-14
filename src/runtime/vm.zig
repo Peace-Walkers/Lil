@@ -605,6 +605,7 @@ pub const VM = struct {
             switch (op) {
                 .OP_CONSTANT => {
                     const constant = self.readConstant();
+                    constant.retain();
                     self.push(constant);
                 },
                 .OP_DEFINE_GLOBAL => {
@@ -688,6 +689,7 @@ pub const VM = struct {
                 },
                 .OP_IMPORT => {
                     const path_val = self.pop();
+                    defer path_val.release(self.allocator);
                     if (path_val != .Object or path_val.Object.obj_type != .String) {
                         std.debug.print("Runtime Error: Import path must be a string.\n", .{});
                         return error.RuntimeError;
@@ -1327,6 +1329,7 @@ pub const VM = struct {
                         const variant_obj = target.Object.toVariant();
 
                         for (variant_obj.payload) |val| {
+                            val.retain();
                             self.push(val);
                         }
                     }
