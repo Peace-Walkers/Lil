@@ -10,5 +10,3 @@ while true:
     
     client.send(response)?
     client.send(body)?
-    
-    client.close()?

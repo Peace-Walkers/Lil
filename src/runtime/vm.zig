@@ -155,7 +155,7 @@ pub const VM = struct {
         try self.globals.put(name, value);
     }
 
-    pub fn createNative(self: *Self, name: []const u8, func: NativeFn) !Value {
+    pub fn createNative(self: *Self, comptime name: []const u8, func: NativeFn) !Value {
         const native_obj = try self.allocator.create(NativeObj);
         native_obj.* = .{
             .obj = .{ .obj_type = .Native, .next = null },
@@ -165,7 +165,7 @@ pub const VM = struct {
         return .{ .Object = &native_obj.obj };
     }
 
-    pub fn bindNative(self: *Self, table: *TableObj, name: []const u8, func: NativeFn) !void {
+    pub fn bindNative(self: *Self, table: *TableObj, comptime name: []const u8, func: NativeFn) !void {
         const native_val = try self.createNative(name, func);
         try table.fields.put(name, native_val);
     }
@@ -289,8 +289,10 @@ pub const VM = struct {
     }
 
     pub fn createResultOk(self: *Self, payload: Value) !Value {
-        const ns_str = try self.createString("Result");
-        const name_str = try self.createString("Ok");
+        const result = try self.allocator.dupe(u8, "Result");
+        const ok = try self.allocator.dupe(u8, "Ok");
+        const ns_str = try self.createString(result);
+        const name_str = try self.createString(ok);
 
         const payload_slice = try self.allocator.alloc(Value, 1);
         payload_slice[0] = payload;
@@ -300,8 +302,10 @@ pub const VM = struct {
     }
 
     pub fn createResultErr(self: *Self, error_msg: []const u8) !Value {
-        const ns_str = try self.createString("Result");
-        const name_str = try self.createString("Err");
+        const result = try self.allocator.dupe(u8, "Result");
+        const err = try self.allocator.dupe(u8, "Err");
+        const ns_str = try self.createString(result);
+        const name_str = try self.createString(err);
         const err_str = try self.createString(error_msg);
 
         const payload_slice = try self.allocator.alloc(Value, 1);
@@ -601,6 +605,7 @@ pub const VM = struct {
             switch (op) {
                 .OP_CONSTANT => {
                     const constant = self.readConstant();
+                    constant.retain();
                     self.push(constant);
                 },
                 .OP_DEFINE_GLOBAL => {
@@ -609,6 +614,9 @@ pub const VM = struct {
                     const name = name_obj.chars;
 
                     const value = self.pop();
+                    if (self.globals.get(name)) |old_val| {
+                        old_val.release(self.allocator, self.io.system);
+                    }
                     try self.globals.put(name, value);
                 },
                 .OP_SET_GLOBAL => {
@@ -616,12 +624,15 @@ pub const VM = struct {
                     const name_obj = name_val.Object.toString();
                     const name = name_obj.chars;
 
-                    if (!self.globals.contains(name)) {
+                    if (self.globals.get(name)) |old_val| {
+                        old_val.release(self.allocator, self.io.system);
+                    } else {
                         std.debug.print("Error undefined variable: '{s}'.\n", .{name});
                         return error.RuntimeError;
                     }
 
                     const value = self.peek(0);
+                    value.retain();
                     try self.globals.put(name, value);
                 },
                 .OP_GET_GLOBAL => {
@@ -630,6 +641,7 @@ pub const VM = struct {
                     const name = name_obj.chars;
 
                     if (self.globals.get(name)) |value| {
+                        value.retain();
                         self.push(value);
                     } else {
                         self.panic("Undefined variable '{s}'\n", .{name});
@@ -677,6 +689,7 @@ pub const VM = struct {
                 },
                 .OP_IMPORT => {
                     const path_val = self.pop();
+                    defer path_val.release(self.allocator, self.io.system);
                     if (path_val != .Object or path_val.Object.obj_type != .String) {
                         std.debug.print("Runtime Error: Import path must be a string.\n", .{});
                         return error.RuntimeError;
@@ -735,6 +748,7 @@ pub const VM = struct {
                             const table = instance_val.Object.toTable();
 
                             if (table.fields.get(property_name)) |value| {
+                                value.retain();
                                 self.push(value);
                             } else {
                                 std.debug.print("Runtime Error: Undefined property '{s}'.\n", .{property_name});
@@ -745,6 +759,7 @@ pub const VM = struct {
                             const sys_obj = instance_val.Object.toSystem();
 
                             if (sys_obj.methods.get(property_name)) |method| {
+                                method.retain();
                                 self.push(method);
                             } else {
                                 self.panic("System object has no property or method named '{s}'", .{property_name});
@@ -753,6 +768,7 @@ pub const VM = struct {
                         },
                         else => unreachable,
                     }
+                    instance_val.release(self.allocator, self.io.system);
                 },
                 .OP_SET_PROPRETY => {
                     const name_val = self.readConstant();
@@ -769,9 +785,15 @@ pub const VM = struct {
 
                     const table = instance_val.Object.toTable();
 
+                    if (table.fields.get(property_name)) |old_val| {
+                        old_val.release(self.allocator, self.io.system);
+                    }
+
                     try table.fields.put(property_name, value);
 
+                    value.retain();
                     self.push(value);
+                    instance_val.release(self.allocator, self.io.system);
                 },
                 .OP_INVOKE => {
                     const methode_name_val = self.readConstant();
@@ -831,6 +853,11 @@ pub const VM = struct {
                                     return error.RuntimeError;
                                 };
 
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator, self.io.system);
+                                }
+
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -848,6 +875,10 @@ pub const VM = struct {
                                     return error.RuntimeError;
                                 };
 
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator, self.io.system);
+                                }
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -866,6 +897,10 @@ pub const VM = struct {
                                             self.panic("{s}", .{@errorName(err)});
                                             return error.RuntimeError;
                                         };
+                                        var i: usize = 0;
+                                        while (i < total_args) : (i += 1) {
+                                            self.stack[self.stack_top - 1 - i].release(self.allocator, self.io.system);
+                                        }
                                         self.stack_top -= total_args;
                                         self.push(result);
                                     } else {
@@ -890,6 +925,10 @@ pub const VM = struct {
                                     self.panic("{s}", .{@errorName(err)});
                                     return error.RuntimeError;
                                 };
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator, self.io.system);
+                                }
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -914,6 +953,10 @@ pub const VM = struct {
                                     self.panic("{s}", .{@errorName(err)});
                                     return error.RuntimeError;
                                 };
+                                var i: usize = 0;
+                                while (i < total_args) : (i += 1) {
+                                    self.stack[self.stack_top - 1 - i].release(self.allocator, self.io.system);
+                                }
                                 self.stack_top -= total_args;
                                 self.push(result);
                             } else {
@@ -985,6 +1028,8 @@ pub const VM = struct {
                     const b = self.pop();
 
                     self.push(.{ .Boolean = try self.valuesEquals(a, b) });
+                    a.release(self.allocator, self.io.system);
+                    b.release(self.allocator, self.io.system);
                 },
                 .OP_RETURN => {
                     const result = self.pop();
@@ -1005,6 +1050,11 @@ pub const VM = struct {
                         if (!is_already_result) {
                             final_result = self.createResultOk(result) catch unreachable;
                         }
+                    }
+
+                    var i: usize = current_frame.slot_offset;
+                    while (i < self.stack_top) : (i += 1) {
+                        self.stack[i].release(self.allocator, self.io.system);
                     }
 
                     self.frame_count -= 1;
@@ -1029,15 +1079,21 @@ pub const VM = struct {
                     self.push(final_result);
                 },
                 .OP_POP => {
-                    _ = self.pop();
+                    const val = self.pop();
+                    val.release(self.allocator, self.io.system);
                 },
                 .OP_GET_LOCAL => {
                     const slot = self.readByte();
-                    self.push(self.stack[frame.slot_offset + slot]);
+                    const val = self.stack[frame.slot_offset + slot];
+                    val.retain();
+                    self.push(val);
                 },
                 .OP_SET_LOCAL => {
                     const slot = self.readByte();
-                    self.stack[frame.slot_offset + slot] = self.peek(0);
+                    const new_value = self.peek(0);
+                    new_value.retain();
+                    self.stack[frame.slot_offset + slot].release(self.allocator, self.io.system);
+                    self.stack[frame.slot_offset + slot] = new_value;
                 },
                 .OP_JUMP_IF_FALSE => {
                     const offset = self.readShort();
@@ -1091,6 +1147,10 @@ pub const VM = struct {
                                 return error.RuntimeError;
                             };
 
+                            var i: usize = 0;
+                            while (i < arg_count + 1) : (i += 1)
+                                self.stack[self.stack_top - 1 - i].release(self.allocator, self.io.system);
+
                             self.stack_top -= (arg_count + 1);
                             self.push(result);
                         },
@@ -1120,8 +1180,11 @@ pub const VM = struct {
                     }
 
                     if (std.mem.eql(u8, variant.variant_name.chars, "Ok")) {
-                        _ = self.pop();
-                        self.push(variant.payload[0]);
+                        const popped_variant = self.pop();
+                        const payload_val = variant.payload[0];
+                        payload_val.retain();
+                        self.push(payload_val);
+                        popped_variant.release(self.allocator, self.io.system);
                     } else {
                         if (self.frame_count == 1) {
                             //INFO: main script case
@@ -1131,9 +1194,15 @@ pub const VM = struct {
                         } else {
                             //INFO: inside a function case
                             const err_result = self.pop();
+                            const current_frame = self.frames[self.frame_count - 1];
+
+                            var i: usize = current_frame.slot_offset;
+                            while (i < self.stack_top) : (i += 1) {
+                                self.stack[i].release(self.allocator, self.io.system);
+                            }
 
                             self.frame_count -= 1;
-                            self.stack_top = self.frames[self.frame_count].slot_offset;
+                            self.stack_top = current_frame.slot_offset;
                             self.push(err_result);
                         }
                     }
@@ -1151,6 +1220,7 @@ pub const VM = struct {
                         .Map => {
                             const map = object_val.Object.toMap();
                             if (map.hashmap.get(index_val)) |v| {
+                                v.retain();
                                 self.push(v);
                             } else {
                                 self.panic("Unknown key in Map.", .{});
@@ -1169,6 +1239,7 @@ pub const VM = struct {
                                 self.panic("Array index out of bounds: length is {d} but index is {d}.", .{ table.elements.items.len, index });
                                 return error.RuntimeError;
                             }
+                            table.elements.items[index].retain();
                             self.push(table.elements.items[index]);
                         },
                         .String => {
@@ -1196,6 +1267,8 @@ pub const VM = struct {
                             return error.RuntimeError;
                         },
                     }
+                    index_val.release(self.allocator, self.io.system);
+                    object_val.release(self.allocator, self.io.system);
                 },
                 .OP_MATCH_TEST => {
                     const has_ns = self.readByte();
@@ -1256,6 +1329,7 @@ pub const VM = struct {
                         const variant_obj = target.Object.toVariant();
 
                         for (variant_obj.payload) |val| {
+                            val.retain();
                             self.push(val);
                         }
                     }
