@@ -70,6 +70,8 @@ pub const VM = struct {
     io: VmIo,
 
     halt_frame_count: ?usize = null,
+    /// Cli args
+    args: ?[]const []const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, io: VmIo) !Self {
         var vm = Self{
@@ -105,6 +107,10 @@ pub const VM = struct {
         try vm.result_methods.put("unwrap", stdlib.methods.variant.unwrap);
 
         return vm;
+    }
+
+    pub fn inject_args(self: *Self, args: []const []const u8) !void {
+        self.args = args;
     }
 
     pub fn eval(self: *Self, source: []const u8) !void {
