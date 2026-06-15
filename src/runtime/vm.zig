@@ -100,6 +100,7 @@ pub const VM = struct {
         try vm.string_methods.put("push", stdlib.methods.string.push);
         try vm.string_methods.put("len", stdlib.methods.string.len);
         try vm.string_methods.put("split", stdlib.methods.string.split);
+        try vm.string_methods.put("to_num", stdlib.methods.string.to_num);
 
         try vm.map_methods.put("put", stdlib.methods.map.put);
         try vm.map_methods.put("get", stdlib.methods.map.get);

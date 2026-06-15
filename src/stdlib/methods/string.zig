@@ -25,6 +25,18 @@ pub fn push(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     return args[0];
 }
 
+pub fn to_num(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
+    _ = arg_count;
+    const v: *VM = @ptrCast(@alignCast(vm));
+    const string = args[0].Object.toString();
+
+    const num = std.fmt.parseInt(i64, string.chars, 10) catch |err| {
+        return v.createResultErr(@errorName(err));
+    };
+
+    return .{ .Number = num };
+}
+
 pub fn len(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     _ = vm;
     _ = arg_count;

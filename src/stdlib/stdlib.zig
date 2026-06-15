@@ -31,8 +31,17 @@ pub fn openNet(vm: *VM) !void {
     try vm.setGlobal("net", .{ .Object = &net_module.obj });
 }
 
+pub fn opMap(vm: *VM) !void {
+    var map_module = try vm.createTable();
+
+    try vm.bindNative(map_module, "new", methods.map.new);
+
+    try vm.setGlobal("map", .{ .Object = &map_module.obj });
+}
+
 pub fn openAll(vm: *VM) !void {
     try openIo(vm);
     try openFs(vm);
     try openNet(vm);
+    try opMap(vm);
 }

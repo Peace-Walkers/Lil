@@ -1,6 +1,11 @@
 let server = net::listen("0.0.0.0", 8080)?
 io::println("Serveur HTTP démarré sur http://localhost:8080")
 
+let m = map::new()
+
+m.put("imad", 24).put("lilya", 23)
+io::println(m)
+
 while true:
     let client = server.accept()?
     let req = client.recv()?
