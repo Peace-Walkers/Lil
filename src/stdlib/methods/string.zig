@@ -69,13 +69,17 @@ pub fn split(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     const sep = args[1].Object.toString();
     const string = args[0].Object.toString();
 
-    var splitted = std.mem.splitAny(u8, string.chars, sep.chars);
+    var splitted = std.mem.splitSequence(u8, string.chars, sep.chars);
 
     const table = try v.createTable();
 
     while (splitted.next()) |slice| {
-        const split_obj = try v.createString(slice);
-        try table.elements.append(v.allocator, .{ .Object = &split_obj.obj });
+        const duped_part = try v.allocator.dupe(u8, slice);
+        const new_str = try v.createString(duped_part);
+
+        const val = Value{ .Object = &new_str.obj };
+        val.retain();
+        try table.elements.append(v.allocator, val);
     }
 
     return .{ .Object = &table.obj };

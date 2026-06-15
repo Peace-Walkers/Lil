@@ -94,6 +94,7 @@ pub const VM = struct {
         try vm.table_methods.put("push", stdlib.methods.table.push);
         try vm.table_methods.put("map", stdlib.methods.table.map);
         try vm.table_methods.put("filter", stdlib.methods.table.filter);
+        try vm.table_methods.put("foreach", stdlib.methods.table.foreach);
         try vm.table_methods.put("len", stdlib.methods.table.len);
         try vm.table_methods.put("pop", stdlib.methods.table.pop);
 
