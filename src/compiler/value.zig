@@ -69,9 +69,9 @@ pub const Value = union(ValueType) {
             self.Object.ref_count += 1;
     }
 
-    pub fn release(self: Value, allocator: std.mem.Allocator) void {
+    pub fn release(self: Value, allocator: std.mem.Allocator, io: std.Io) void {
         if (self == .Object) {
-            self.Object.release(allocator);
+            self.Object.release(allocator, io);
         }
     }
 };
@@ -119,14 +119,14 @@ pub const Obj = struct {
         return @fieldParentPtr("obj", self);
     }
 
-    pub fn release(self: *Obj, allocator: std.mem.Allocator) void {
+    pub fn release(self: *Obj, allocator: std.mem.Allocator, io: std.Io) void {
         self.ref_count -= 1;
         if (self.ref_count == 0) {
-            self.free(allocator);
+            self.free(allocator, io);
         }
     }
 
-    pub fn free(self: *Obj, allocator: std.mem.Allocator) void {
+    pub fn free(self: *Obj, allocator: std.mem.Allocator, io: std.Io) void {
         switch (self.obj_type) {
             .String => {
                 const string_obj = self.toString();
@@ -137,12 +137,12 @@ pub const Obj = struct {
                 const table_obj = self.toTable();
 
                 for (table_obj.elements.items) |e| {
-                    if (e == .Object) e.Object.release(allocator);
+                    if (e == .Object) e.Object.release(allocator, io);
                 }
 
                 var it = table_obj.fields.iterator();
                 while (it.next()) |entry| {
-                    if (entry.value_ptr.* == .Object) entry.value_ptr.*.Object.release(allocator);
+                    if (entry.value_ptr.* == .Object) entry.value_ptr.*.Object.release(allocator, io);
                 }
                 table_obj.elements.deinit(allocator);
                 table_obj.fields.deinit();
@@ -152,19 +152,19 @@ pub const Obj = struct {
                 const fn_obj = self.toFunction();
                 fn_obj.chunk.deinit();
                 if (fn_obj.name) |name| {
-                    name.obj.release(allocator);
+                    name.obj.release(allocator, io);
                 }
                 allocator.destroy(fn_obj);
             },
             .Variant => {
                 const variant_obj = self.toVariant();
                 if (variant_obj.namespace) |ns| {
-                    ns.obj.release(allocator);
+                    ns.obj.release(allocator, io);
                 }
-                variant_obj.variant_name.obj.release(allocator);
+                variant_obj.variant_name.obj.release(allocator, io);
                 for (variant_obj.payload) |item| {
                     if (item == .Object) {
-                        item.Object.release(allocator);
+                        item.Object.release(allocator, io);
                     }
                 }
                 allocator.free(variant_obj.payload);
@@ -181,8 +181,8 @@ pub const Obj = struct {
                     const key = entry.key_ptr.*;
                     const value = entry.value_ptr.*;
 
-                    if (key == .Object) key.Object.release(allocator);
-                    if (value == .Object) value.Object.release(allocator);
+                    if (key == .Object) key.Object.release(allocator, io);
+                    if (value == .Object) value.Object.release(allocator, io);
                 }
                 map_obj.hashmap.deinit();
                 allocator.destroy(map_obj);
@@ -192,12 +192,24 @@ pub const Obj = struct {
 
                 var it = sys_obj.methods.iterator();
                 while (it.next()) |entry| {
-                    entry.value_ptr.*.release(allocator);
+                    entry.value_ptr.*.release(allocator, io);
                 }
 
                 sys_obj.methods.deinit();
+                switch (sys_obj.kind) {
+                    .TcpClient => {
+                        const client: *std.Io.net.Stream = @ptrCast(@alignCast(sys_obj.ptr));
+                        client.close(io);
+                        allocator.destroy(client);
+                    },
+                    .TcpServer => {
+                        const server: *std.Io.net.Server = @ptrCast(@alignCast(sys_obj.ptr));
+                        server.deinit(io);
+                        allocator.destroy(server);
+                    },
+                    else => {},
+                }
                 allocator.destroy(sys_obj);
-                //TODO:
             },
         }
     }
