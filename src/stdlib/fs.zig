@@ -46,13 +46,13 @@ pub fn stat(vm: *anyopaque, arg_count: u8, args: [*]Value) !Value {
     try stat_table.fields.put("inode", .{ .Number = @intCast(file_stat.inode) });
     try stat_table.fields.put("mode", .{ .Number = @intCast(@intFromEnum(file_stat.permissions)) });
 
-    const ns_str = try v.createString("FileType");
+    const ns_str = try v.createString(try v.allocator.dupe(u8, "FileType"));
 
     const kind_str: []const u8 = switch (file_stat.kind) {
-        .file => "File",
-        .directory => "Dir",
-        .sym_link => "Sym",
-        else => "Unknown",
+        .file => try v.allocator.dupe(u8, "File"),
+        .directory => try v.allocator.dupe(u8, "Dir"),
+        .sym_link => try v.allocator.dupe(u8, "Sym"),
+        else => try v.allocator.dupe(u8, "Unknown"),
     };
 
     const name_str = try v.createString(kind_str);

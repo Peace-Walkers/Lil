@@ -2,8 +2,8 @@ const std = @import("std");
 const lil = @import("lil");
 
 pub fn main(init: std.process.Init) !void {
-    const arena: std.mem.Allocator = init.arena.allocator();
-    const args = try init.minimal.args.toSlice(arena);
+    const gpa: std.mem.Allocator = init.gpa;
+    const args = try init.minimal.args.toSlice(gpa);
     const io = init.io;
 
     var stdout_buffer: [1024]u8 = undefined;
@@ -22,10 +22,10 @@ pub fn main(init: std.process.Init) !void {
 
     const file_path = args[1];
 
-    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, file_path, arena, .unlimited);
-    defer arena.free(source);
+    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, file_path, gpa, .unlimited);
+    defer gpa.free(source);
 
-    var vm = try lil.VM.init(arena, vm_io);
+    var vm = try lil.VM.init(gpa, vm_io);
     defer vm.deinit();
 
     try lil.stdlib.openAll(&vm);

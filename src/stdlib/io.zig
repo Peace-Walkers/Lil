@@ -18,6 +18,7 @@ fn internalPrint(v: *VM, arg_count: u8, args: [*]Value, newline: bool) !Value {
         const string_obj = val.Object.toString();
 
         var mark: std.ArrayList(usize) = .empty;
+        defer mark.deinit(v.allocator);
 
         var i: usize = 0;
         while (i < string_obj.chars.len) : (i += 1) {

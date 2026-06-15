@@ -150,7 +150,7 @@ pub const Obj = struct {
             },
             .Function => {
                 const fn_obj = self.toFunction();
-                fn_obj.chunk.deinit();
+                fn_obj.chunk.deinit(allocator, io);
                 if (fn_obj.name) |name| {
                     name.obj.release(allocator, io);
                 }

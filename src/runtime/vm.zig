@@ -124,7 +124,7 @@ pub const VM = struct {
         var err_accumulator = diagnostics.ErrorAccumulator.init(frontend_alloc);
 
         var scanner = lexer.Lexer.init(source);
-        var p = parser.Parser.init(&scanner, self.allocator, err_accumulator.reporter());
+        var p = parser.Parser.init(&scanner, frontend_alloc, err_accumulator.reporter());
         const ast_root = p.parse() catch {
             std.debug.print("Fatal Parsing Error.\n”", .{});
             return error.CompileError;
@@ -182,9 +182,13 @@ pub const VM = struct {
         const compiler = @import("../compiler/compiler.zig");
         const diagnostics = @import("../compiler/diagnostic.zig");
 
+        var frontend_arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer frontend_arena.deinit();
+        const frontend_alloc = frontend_arena.allocator();
+
         var scanner = lexer.Lexer.init(source);
-        var err_accumulator = diagnostics.ErrorAccumulator.init(self.allocator);
-        var p = parser.Parser.init(&scanner, self.allocator, err_accumulator.reporter());
+        var err_accumulator = diagnostics.ErrorAccumulator.init(frontend_alloc);
+        var p = parser.Parser.init(&scanner, frontend_alloc, err_accumulator.reporter());
         const ast_root = try p.parse();
 
         if (err_accumulator.has_error) {
@@ -227,7 +231,18 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        var it_mods = self.loaded_modules.iterator();
+        while (it_mods.next()) |entry| entry.value_ptr.*.release(self.allocator, self.io.system);
+        self.loaded_modules.deinit();
+
+        var it_globals = self.globals.iterator();
+        while (it_globals.next()) |entry| entry.value_ptr.*.release(self.allocator, self.io.system);
         self.globals.deinit();
+
+        self.map_methods.deinit();
+        self.result_methods.deinit();
+        self.string_methods.deinit();
+        self.table_methods.deinit();
     }
 
     fn currentFrame(self: *Self) *CallFrame {
@@ -1078,6 +1093,7 @@ pub const VM = struct {
                         //     entry.value_ptr.*.print();
                         //     std.debug.print("\n", .{});
                         // }
+                        final_result.release(self.allocator, self.io.system);
                         return;
                     }
 
@@ -1374,3 +1390,4 @@ pub const VM = struct {
         }
     }
 };
+

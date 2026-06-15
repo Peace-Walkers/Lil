@@ -61,10 +61,13 @@ pub const Chunk = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator, io: std.Io) void {
         self.code.deinit(self.allocator);
-        self.constants.deinit(self.allocator);
         self.lines.deinit(self.allocator);
+        for (self.constants.items) |val| {
+            val.release(allocator, io);
+        }
+        self.constants.deinit(self.allocator);
     }
 
     pub fn write(self: *Self, byte: u8, line: usize) !void {
@@ -77,3 +80,4 @@ pub const Chunk = struct {
         return @intCast(self.constants.items.len - 1);
     }
 };
+
