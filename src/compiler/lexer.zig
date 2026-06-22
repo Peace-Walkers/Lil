@@ -42,6 +42,7 @@ pub const TokenType = enum {
     Arrow, // => (for pattern matching)
     Pipe, // |  (for ADTs: | Some(val))
     Underscore, // _ (for pattern matching)
+    PlusEqual, // += for incrementation
 
     Exclamationmark, // ! for error returning function
     QuestionMark, // ? for error propagation
@@ -301,13 +302,15 @@ pub const Lexer = struct {
             '}' => return self.makeToken(.RBrace, start),
             '[' => return self.makeToken(.LBracket, start),
             ']' => return self.makeToken(.RBracket, start),
-            '+' => return self.makeToken(.Plus, start),
             '-' => return self.makeToken(.Minus, start),
             '*' => return self.makeToken(.Star, start),
             '/' => return self.makeToken(.Slash, start),
             '|' => return self.makeToken(.Pipe, start),
             '?' => return self.makeToken(.QuestionMark, start),
-
+            '+' => {
+                if (self.match('=')) return self.makeToken(.PlusEqual, start);
+                return self.makeToken(.Plus, start);
+            },
             '=' => {
                 if (self.match('=')) return self.makeToken(.EqualsEquals, start);
                 if (self.match('>')) return self.makeToken(.Arrow, start);

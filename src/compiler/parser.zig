@@ -581,9 +581,24 @@ pub const Parser = struct {
         const expr = try self.parse_expr();
         const line = self.previous.line;
 
-        if (self.match(.Equals)) {
+        if (self.match(.Equals) or self.match(.PlusEqual)) {
             // const name = expr.Identifier;
-            const value_node = try self.parse_expr();
+            const assign_operator = self.previous.tag;
+            var value_node = try self.parse_expr();
+
+            if (assign_operator == .PlusEqual) {
+                const left_ptr = try self.arena.create(ast.Node);
+                left_ptr.* = expr;
+
+                const right_ptr = try self.arena.create(ast.Node);
+                right_ptr.* = value_node;
+
+                value_node = .{ .Binary = .{
+                    .left = left_ptr,
+                    .operator = .Plus,
+                    .right = right_ptr,
+                } };
+            }
 
             const heap_node = try self.arena.create(ast.Node);
             heap_node.* = value_node;

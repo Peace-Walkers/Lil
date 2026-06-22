@@ -23,7 +23,7 @@ fn! parse_http(raw_request):
     if headers_parts.len() == 2:
       headers.put(headers_parts[0], headers_parts[1])
 
-    i = i + 1 
+    i += 1
 
   let result = {
     method: method,
